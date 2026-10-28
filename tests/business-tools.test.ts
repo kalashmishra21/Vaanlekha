@@ -165,6 +165,23 @@ describe("business boundary", () => {
     expect(await executor.execute(yes.tool)).toMatchObject({ ok: true, data: { newStock: 20 } });
   });
 
+  it.each(["chini", "cheeni", "chinee", "shakkar"])("matches %s to a saved Hindi sugar product for an exact sale draft", async (spokenName) => {
+    const repository = { products: async () => [{ id: "11111111-1111-4111-8111-111111111119", name: "Stage23 चीनी", unit: "kg", currentStock: 7.75, sellingPrice: 40 }] } as unknown as BusinessRepository;
+    const result = await new BusinessToolExecutor(repository).execute({ intent: "sales.prepareSpoken", arguments: {
+      product: spokenName, quantity: 2.5, unit: "kg", unitPrice: 40, priceUnit: "kg",
+    } });
+    expect(result).toMatchObject({ ok: true, data: { draft: { estimatedTotal: 100, items: [{ productName: "Stage23 चीनी", quantity: 2.5 }] } } });
+  });
+
+  it("rejects a romanised alias when two products normalize to the same name", async () => {
+    const repository = { products: async () => [
+      { id: "11111111-1111-4111-8111-111111111119", name: "Sugar", unit: "kg", currentStock: 5, sellingPrice: 40 },
+      { id: "11111111-1111-4111-8111-111111111120", name: "चीनी", unit: "kg", currentStock: 8, sellingPrice: 42 },
+    ] } as unknown as BusinessRepository;
+    const result = await new BusinessToolExecutor(repository).execute({ intent: "inventory.getStock", arguments: { product: "Chini" } });
+    expect(result).toMatchObject({ ok: false, error: "More than one record matches that name. Use the full name." });
+  });
+
   it("reads Rahul Sharma from the Sharma ji alias and derives his balance", async () => {
     const executor = new BusinessToolExecutor(fakeRepository().repository);
     const result = await executor.execute({ intent: "khata.getBalance", arguments: { customer: "Sharma ji" } });

@@ -1,5 +1,6 @@
 import type { ToolCall } from "../ai/types/tool-call";
 import { normalizeMerchantText, parseMerchantNumber } from "./merchant-language";
+import { parseSpokenQuantity } from "./vernacular-quantity";
 
 export function mentionsMerchantEntity(text: string, name: string): boolean {
   const normalizedText = normalizeMerchantText(text).toLocaleLowerCase("en-IN");
@@ -17,7 +18,8 @@ export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
     const words = text.split(/\s+/u);
     for (let start = 0; start < words.length; start++) {
       for (let length = 1; length <= 3 && start + length <= words.length; length++) {
-        if (parseMerchantNumber(words.slice(start, start + length).join(" ")) === Math.abs(value)) return true;
+        const phrase = words.slice(start, start + length).join(" ");
+        if (parseMerchantNumber(phrase) === Math.abs(value) || parseSpokenQuantity(phrase)?.quantity === Math.abs(value)) return true;
       }
     }
     return false;

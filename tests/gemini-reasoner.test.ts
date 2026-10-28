@@ -31,6 +31,18 @@ describe("optional Gemini reasoner", () => {
       .resolves.toMatchObject({ kind: "tool_call", tool: { intent: "inventory.adjust", arguments: { product: "Maggi", delta: 5 } } });
   });
 
+  it("preserves a fractional stock quantity in the model schema and trusted proposal", async () => {
+    const request: typeof fetch = async (_url, options) => {
+      const body = JSON.parse(String(options?.body));
+      const adjust = body.tools.find((tool: { function: { name: string } }) => tool.function.name === "inventory_adjust");
+      expect(adjust.function.parameters.properties.delta.type).toBe("number");
+      return completion("inventory_adjust", { product: "Sugar", delta: 2.5, unit: "kg" });
+    };
+    await expect(new GeminiReasoner("test-key", "gemini-3.5-flash-lite", request)
+      .reason({ text: "Please increase Sugar stock by 2.5 kg" }))
+      .resolves.toMatchObject({ kind: "tool_call", tool: { intent: "inventory.adjust", arguments: { delta: 2.5, unit: "kg" } } });
+  });
+
   it("grounds a Hindi supplier-directory request with a plural English noun", async () => {
     const request: typeof fetch = async () => completion("supplier_list", {});
     await expect(new GeminiReasoner("test-key", "gemini-3.5-flash-lite", request)
@@ -51,7 +63,7 @@ describe("optional Gemini reasoner", () => {
     await expect(provider.reason({ text: "Increase Maggi inventory by twenty packets" })).resolves.toMatchObject({
       kind: "tool_call", tool: { intent: "inventory.adjust", arguments: { delta: 20 } },
     });
-    expect(requests.filter((url) => url.includes("generativelanguage"))).toHaveLength(2);
+    expect(requests.filter((url) => url.includes("generativelanguage"))).toHaveLength(1);
     expect(requests.at(-1)).toBe("https://openrouter.ai/api/v1/chat/completions");
   });
 

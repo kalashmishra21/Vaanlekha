@@ -8,6 +8,7 @@ describe("Indian spoken quantities", () => {
     ["पौने दो लीटर तेल", 1.75, "litre"], ["ढाई किलो चीनी", 2.5, "kg"],
     ["साढ़े तीन kg आटा", 3.5, "kg"], ["do packets Maggi", 2, "packet"],
     ["char pieces soap", 4, "piece"], ["250 ml oil", 250, "ml"],
+    ["2.5 kg sugar", 2.5, "kg"], ["२.५ किलो चीनी", 2.5, "kg"],
     ["पाव तेल देना", 0.25, null],
   ];
   for (const [utterance, quantity, unit] of examples) {

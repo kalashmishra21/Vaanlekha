@@ -55,7 +55,8 @@ const devanagariDigits = "०१२३४५६७८९";
 export function normalizeMerchantText(value: string): string {
   let result = value.normalize("NFKC").replace(/[०-९]/gu, (digit) => String(devanagariDigits.indexOf(digit)));
   for (const [pattern, replacement] of hindiWords) result = result.replace(pattern, replacement);
-  return result.replace(/[।!?.,;:]+/gu, " ").replace(/\s+/gu, " ").trim();
+  return result.replace(/(?<=\d)\.(?=\d)/gu, "\uE000")
+    .replace(/[।!?.,;:]+/gu, " ").replace(/\uE000/gu, ".").replace(/\s+/gu, " ").trim();
 }
 
 export function parseMerchantNumber(value: string): number | null {

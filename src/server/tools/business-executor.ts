@@ -37,13 +37,20 @@ function normalizedName(value: string): string {
   return value.toLocaleLowerCase("en-IN").normalize("NFKC")
     .replace(/आइस\s*क्रीम|आइस्क्रीम|आईस्क्रीम|ice\s*cream/gu, "icecream")
     .replace(/चीनी/gu, "sugar").replace(/दूध/gu, "milk").replace(/तेल/gu, "oil")
+    .replace(/\b(?:chini|cheeni|chinee|shakkar)\b/gu, "sugar")
+    .replace(/\bdoodh\b/gu, "milk").replace(/\btel\b/gu, "oil")
     .replace(/\bji\b/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 function matchByName<T extends { name: string }>(records: T[], rawName: string): T | null {
+  const literalName = rawName.trim().normalize("NFKC").toLocaleLowerCase("en-IN");
+  const literal = records.filter((record) => record.name.trim().normalize("NFKC").toLocaleLowerCase("en-IN") === literalName);
+  if (literal.length > 1) throw new Error("More than one record matches that name. Use the full name.");
+  if (literal.length === 1) return literal[0];
   const requested = normalizedName(rawName);
-  const exact = records.find((record) => normalizedName(record.name) === requested);
-  if (exact) return exact;
+  const exact = records.filter((record) => normalizedName(record.name) === requested);
+  if (exact.length > 1) throw new Error("More than one record matches that name. Use the full name.");
+  if (exact.length === 1) return exact[0];
   const matches = records.filter((record) => {
     const words = normalizedName(record.name).split(/\s+/u);
     return requested.split(/\s+/u).length === 1 ? words.includes(requested) : normalizedName(record.name).includes(requested);

@@ -9,7 +9,9 @@ export function VoiceStateIndicator({ state, realVoice = false, realReasoning = 
     : realVoice && state === "listening" ? "Microphone is recording. Stop when finished."
     : realVoice && state === "transcribing" ? "Gnani Prisma is turning speech into text."
     : realVoice && state === "speaking" ? "Gnani Timbre is playing the verified reply."
-    : realReasoning && state === "reasoning" ? `${reasonerMode === "gemini" ? "Gemini" : "OpenRouter"} is selecting a structured intent.`
+    : realReasoning && state === "reasoning" ? reasonerMode === "gemini"
+      ? "Gemini is primary; OpenRouter may interpret if Gemini is unavailable."
+      : "OpenRouter is selecting a structured intent."
     : realReasoning && state === "error" ? "No business action was confirmed. Please try again."
     : connected && state === "executing" ? "A trusted server tool is checking store data."
     : voiceStates[state].detail;

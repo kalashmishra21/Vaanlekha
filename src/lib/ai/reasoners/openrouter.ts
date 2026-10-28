@@ -8,15 +8,16 @@ import { isAmbiguousMerchantText, isConversationOnlyMessage } from "../../assist
 import { isGroundedToolCall, mentionsMerchantEntity } from "../../assistant/utterance-safety";
 
 const endpoint = "https://openrouter.ai/api/v1/chat/completions";
-export type ReasonerTransport = { endpoint: string; provider: "OpenRouter" | "Gemini" };
+export type ReasonerTransport = { endpoint: string; provider: "OpenRouter" | "Gemini"; timeoutMs?: number; retryAttempts?: number };
 const field = { type: "string" } as const;
 const integer = { type: "integer" } as const;
+const decimal = { type: "number" } as const;
 const parameters = (properties: Record<string, unknown>, required: string[]) =>
   ({ type: "object", properties, required, additionalProperties: false });
 const listItems = { type: "array", minItems: 1, maxItems: 30, items: parameters({ product: field, quantity: integer }, ["product", "quantity"]) };
 
 const tools = [
-  ["inventory_adjust", "Propose a stock change. Positive delta adds stock; negative delta removes it. Include unit only when explicitly stated; the trusted tool asks for unit and price if this product is missing.", parameters({ product: field, delta: integer, unit: field }, ["product", "delta"])],
+  ["inventory_adjust", "Propose a stock change. Positive delta adds stock; negative delta removes it. Preserve fractional quantities. Include unit only when explicitly stated; the trusted tool asks for unit and price if this product is missing.", parameters({ product: field, delta: decimal, unit: field }, ["product", "delta"])],
   ["inventory_getStock", "Read the current stock of a product.", parameters({ product: field }, ["product"])],
   ["khata_getBalance", "Read how much a customer owes the shop.", parameters({ customer: field }, ["customer"])],
   ["khata_addEntry", "Record a customer's ledger event. Use type received when the customer pays or returns money; gave when the shop gives new credit.", parameters({ customer: field, type: { type: "string", enum: ["gave", "received"] }, amountRupees: integer }, ["customer", "type", "amountRupees"])],
@@ -77,7 +78,7 @@ export class OpenRouterReasoner {
     const recognized = await new MockAIProvider(this.today).reason({ ...input, text });
     if (recognized.kind !== "unsupported") return reasoningResultSchema.parse(recognized);
     await this.beforeNetworkRequest?.();
-    const deadline = Date.now() + 40_000;
+    const deadline = Date.now() + (this.transport.timeoutMs ?? 20_000);
     const started = performance.now();
     let response: Response;
     try {
@@ -98,9 +99,9 @@ export class OpenRouterReasoner {
         max_tokens: 400,
         stream: false,
         }),
-        signal: AbortSignal.timeout(Math.min(35_000, Math.max(1, deadline - Date.now()))),
+        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
         cache: "no-store",
-      }));
+      }), { attempts: this.transport.retryAttempts ?? 2 });
     } catch {
       if (process.env.AI_REASONER_TRACE === "1") console.info("Reasoner request", { provider: this.transport.provider, status: "network-error", durationMs: Math.round(performance.now() - started) });
       throw new ProviderRequestError(this.transport.provider, 503, "1");
