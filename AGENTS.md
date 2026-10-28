@@ -1,8 +1,8 @@
-# DukaanSaathi AI agent instructions
+# Vaanlekha agent instructions
 
 ## Project identity
 
-DukaanSaathi AI is a voice-first AI copilot for Indian kirana stores and small retailers. It is a challenge project for the Gnani AI internship competition.
+Vaanlekha is a voice-first AI copilot for Indian kirana stores and small retailers. It is a challenge project for the Gnani AI internship competition. The connected demo shop retains its original database name for migration compatibility.
 
 ## Git workflow
 

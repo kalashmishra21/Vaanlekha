@@ -10,7 +10,7 @@ import { whatsAppDraft } from "@/lib/business/sharing";
 import { getShopContext } from "@/server/data/context";
 import styles from "./receipt.module.css";
 
-export const metadata: Metadata = { title: "Sale receipt | DukaanSaathi AI", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Sale receipt | Vaanlekha", robots: { index: false, follow: false } };
 
 const receiptItemSchema = z.object({
   product_id: z.string().uuid(), quantity: z.coerce.number(),

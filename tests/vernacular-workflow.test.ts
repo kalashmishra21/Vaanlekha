@@ -10,6 +10,14 @@ function repository() {
 }
 
 describe("vernacular assistant actions", () => {
+  it("retains a pending product and quantity when the price reply uses its short name", async () => {
+    const provider = new MockAIProvider();
+    const pending = { kind: "product-create-price" as const, product: "Test Kulfi", unit: "packet", openingStock: 10 };
+    const confirmed = await provider.reason({ text: "25 ki ek kulfi", pending });
+    expect(confirmed).toMatchObject({ kind: "clarify", pending: { kind: "product-create-confirm", product: "Test Kulfi", openingStock: 10, sellingPrice: 25 } });
+    const unrelated = await provider.reason({ text: "25 ki ek samosa", pending });
+    expect(unrelated).not.toMatchObject({ pending: { kind: "product-create-confirm", product: "Test Kulfi" } });
+  });
   it("drafts 2.5 kg sugar at ₹40/kg for ₹100 without saving", async () => {
     const proposed = await new MockAIProvider().reason({ text: "ढाई किलो चीनी 40 रुपये किलो के हिसाब से बेच दो" });
     expect(proposed).toMatchObject({ kind: "tool_call", tool: { intent: "sales.prepareSpoken" } });
@@ -26,7 +34,14 @@ describe("vernacular assistant actions", () => {
     expect(proposed).toMatchObject({ kind: "tool_call", tool: { intent: "inventory.adjust" } });
     if (proposed.kind !== "tool_call") throw new Error("Expected stock proposal");
     const fake = repository();
-    const result = await new BusinessToolExecutor(fake.source).execute(proposed.tool);
+    const executor = new BusinessToolExecutor(fake.source);
+    const confirmation = await executor.execute(proposed.tool);
+    expect(confirmation).toMatchObject({ clarification: { pending: { delta: 0.25, unit: "kg" } } });
+    expect(fake.adjustStock).not.toHaveBeenCalled();
+    if (!("clarification" in confirmation)) throw new Error("Expected measured-stock confirmation");
+    const approved = await new MockAIProvider().reason({ text: "haan", pending: confirmation.clarification.pending });
+    if (approved.kind !== "tool_call") throw new Error("Expected approved adjustment");
+    const result = await executor.execute(approved.tool);
     expect(result).toMatchObject({ ok: true, data: { delta: 0.25, newStock: 10.25 } });
     expect(fake.adjustStock).toHaveBeenCalledWith(sugar.id, 0.25, expect.any(String));
   });

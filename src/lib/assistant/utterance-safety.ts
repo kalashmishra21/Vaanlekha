@@ -24,6 +24,7 @@ export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
   };
   const has = (pattern: RegExp) => pattern.test(text);
   switch (call.intent) {
+    case "inventory.adjustConfirmed": return false;
     case "inventory.adjust": return mentions(call.arguments.product) && number(call.arguments.delta)
       && (call.arguments.delta > 0
         ? has(/\b(?:add|increase|restock|jodo|badhao|daal)\b/u) && !has(/\b(?:decrease|reduce|remove|subtract|ghatao)\b/u)
@@ -45,7 +46,7 @@ export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
     case "sales.getDailySummary": return has(/\b(?:sales?|bikri)\b/u)
       && (has(/\b(?:today|aaj)\b/u) || text.includes(call.arguments.date));
     case "inventory.getReorderSuggestions": return has(/\b(?:reorder|low.stock)\b/u);
-    case "supplier.list": return has(/\b(?:supplier|vendor)\b/u) && has(/\b(?:list|show|dikhao|batao)\b/u);
+    case "supplier.list": return has(/\b(?:suppliers?|vendors?)\b/u) && has(/\b(?:list|show|dikhao|batao)\b/u);
     case "orders.getOpen": return has(/\borders?\b/u) && has(/\b(?:open|show|list|dikhao|batao)\b/u);
     case "orders.getStatus": return mentions(call.arguments.order) && has(/\borders?\b/u) && has(/\b(?:status|where|check|dikhao|batao)\b/u);
     case "orders.transition": return mentions(call.arguments.order) && has(/\borders?\b/u)

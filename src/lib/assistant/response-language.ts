@@ -28,6 +28,11 @@ export function localizeTrustedReply(text: string, raw: unknown, fallback: strin
   const product = typeof data.product === "string" ? data.product : null;
   const customer = typeof data.customer === "string" ? data.customer : null;
   const unit = typeof data.unit === "string" ? data.unit : "unit";
+  if (data.intent === "supplier.list" && Array.isArray(data.suppliers)) {
+    const names = data.suppliers.flatMap((supplier) => supplier && typeof supplier === "object" && typeof supplier.name === "string" ? [supplier.name] : []);
+    if (!names.length) return language === "hindi" ? "अभी कोई सप्लायर सेव नहीं है। सप्लायर्स में नया नाम जोड़ सकते हैं।" : "Abhi koi supplier save nahi hai. Suppliers mein naya naam jod sakte ho.";
+    return language === "hindi" ? `आपके सप्लायर हैं: ${names.join(", ")}।` : `Aapke suppliers hain: ${names.join(", ")}.`;
+  }
   if (data.intent === "sales.prepareSpoken" && data.draft && typeof data.draft === "object") {
     const draft = data.draft as { items?: { quantity?: number; productName?: string; unit?: string }[]; estimatedTotal?: number; canConfirm?: boolean };
     const item = draft.items?.[0];

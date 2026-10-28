@@ -9,11 +9,11 @@ const CoreScene = dynamic(() => import("./core-scene"), { ssr: false });
 const sequence: CoreMode[] = ["idle", "listening", "thinking", "action", "result"];
 const durations = [650, 1500, 1800, 1650, 1400];
 const states: Record<CoreMode, { title: string; detail: string; visual: string }> = {
-  idle: { title: "Ready for a request", detail: "An illustrative command is queued. Your microphone is off.", visual: "Faceted Saathi Core at rest" },
-  listening: { title: "Voice, illustrated", detail: "The waveform is simulated; no microphone is recording.", visual: "Faceted Saathi Core in simulated listening state" },
-  thinking: { title: "Meaning identified", detail: "Product: Maggi · quantity: 20 packets.", visual: "Faceted Saathi Core in simulated reasoning state" },
-  action: { title: "Validated action preview", detail: "Proposed stock adjustment: +20 Maggi packets. Nothing has been saved.", visual: "Faceted Saathi Core in simulated validation state" },
-  result: { title: "Simulated stock result", detail: "Illustrative outcome: +20 packets. No store record changed.", visual: "Faceted Saathi Core in simulated result state" },
+  idle: { title: "Ready for a request", detail: "An illustrative command is queued. Your microphone is off.", visual: "Faceted Vaani Core at rest" },
+  listening: { title: "Voice, illustrated", detail: "The waveform is simulated; no microphone is recording.", visual: "Faceted Vaani Core in simulated listening state" },
+  thinking: { title: "Meaning identified", detail: "Product: Maggi · quantity: 20 packets.", visual: "Faceted Vaani Core in simulated reasoning state" },
+  action: { title: "Validated action preview", detail: "Proposed stock adjustment: +20 Maggi packets. Nothing has been saved.", visual: "Faceted Vaani Core in simulated validation state" },
+  result: { title: "Simulated stock result", detail: "Illustrative outcome: +20 packets. No store record changed.", visual: "Faceted Vaani Core in simulated result state" },
 };
 
 function LiquidLens() {
@@ -40,10 +40,10 @@ function LiquidLens() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-  return <div className="glass-floating" data-out={!visible} aria-hidden="true"><div className="glass-refraction" /><div className="glass-content"><span>SAATHI / INTENT LENS</span><strong>Signal becomes meaning.</strong><small>Illustrative visual</small></div></div>;
+  return <div className="glass-floating" data-out={!visible} aria-hidden="true"><div className="glass-refraction" /><div className="glass-content"><span>VAANI / INTENT LENS</span><strong>Signal becomes meaning.</strong><small>Illustrative visual</small></div></div>;
 }
 
-export function SaathiCore() {
+export function VaaniCore() {
   const [mode, setMode] = useState<CoreMode>("idle");
   const [canRender, setCanRender] = useState(false);
   const [rendered, setRendered] = useState(false);
@@ -96,7 +96,7 @@ export function SaathiCore() {
   return <div className="core-column">
     <LiquidLens />
     <div className="core-display" data-state={mode} data-renderer={rendered ? "webgl" : "fallback"}>
-      <div className="core-topline"><span>Saathi Core</span><span>VOICE / INTENT / VERIFIED PREVIEW</span></div>
+      <div className="core-topline"><span>Vaani Core</span><span>VOICE / INTENT / VERIFIED PREVIEW</span></div>
       <div className="core-orbit" ref={orbit}>
         <div className="orbit orbit-outer" /><div className="orbit orbit-inner" />
         <span className="orbit-node node-stock">Stock</span><span className="orbit-node node-khata">Khata</span><span className="orbit-node node-sales">Sales</span><div className="core-halo" />

@@ -10,6 +10,8 @@ describe("merchant reply language", () => {
     expect(localizeTrustedReply("250 g चीनी add karo", result, "fallback")).toContain("7.75 kg");
     expect(localizeTrustedReply("250 g chini add karo", result, "fallback")).toContain("7.75 kg");
     expect(localizeTrustedReply("Add 250 g sugar", result, "fallback")).toBe("fallback");
+    expect(localizeTrustedReply("हमारे suppliers की सूची दिखाओ", { intent: "supplier.list", suppliers: [{ name: "Everyday Staples Supply" }] }, "fallback"))
+      .toBe("आपके सप्लायर हैं: Everyday Staples Supply।");
   });
 
   it("states that no product was saved before price approval", () => {

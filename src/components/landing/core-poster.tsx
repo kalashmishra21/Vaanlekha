@@ -24,11 +24,11 @@ export function CoreFallback({ description }: { description: string }) {
 export function CorePoster() {
   return <div className="core-column">
     <div className="core-display" data-state="idle" data-renderer="fallback">
-      <div className="core-topline"><span>Saathi Core</span><span>VOICE / INTENT / VERIFIED PREVIEW</span></div>
+      <div className="core-topline"><span>Vaani Core</span><span>VOICE / INTENT / VERIFIED PREVIEW</span></div>
       <div className="core-orbit">
         <div className="orbit orbit-outer" /><div className="orbit orbit-inner" />
         <span className="orbit-node node-stock">Stock</span><span className="orbit-node node-khata">Khata</span><span className="orbit-node node-sales">Sales</span><div className="core-halo" />
-        <CoreFallback description="Faceted Saathi Core at rest" />
+        <CoreFallback description="Faceted Vaani Core at rest" />
         <div className="voice-bars" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</div>
       </div>
       <div className="core-readout">

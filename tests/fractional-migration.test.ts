@@ -69,5 +69,5 @@ describe("fractional quantities in PostgreSQL", () => {
       await expect(db.query(`select public.adjust_stock_decimal_idempotent('${shop}',
         'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', '${product}', 0.5, 'Cross shop')`)).rejects.toThrow();
     } finally { await db.close(); }
-  });
+  }, 30_000); // PGlite loads PostgreSQL and applies the migration chain in this test.
 });

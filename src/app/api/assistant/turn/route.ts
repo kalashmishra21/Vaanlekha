@@ -94,7 +94,7 @@ export async function POST(request: Request) {
   let provider;
   try { provider = createAIProvider(process.env, async () => {
     const limit = await enforceShopRateLimit(context, "openrouter_reasoner");
-    if (limit) throw new ProviderRequestError("OpenRouter", limit.status, limit.headers.get("Retry-After"));
+    if (limit) throw new ProviderRequestError(config.AI_REASONER === "gemini" ? "Gemini" : "OpenRouter", limit.status, limit.headers.get("Retry-After"));
   }); } catch {
     return finish({ state: "failed", title: "AI provider unavailable", intent: "assistant.reason",
       detail: "The selected provider is not configured.", reply: "The selected AI provider is not configured. Nothing was changed." }, 503, pending, continuing ? savedRequestKey : null);
@@ -111,7 +111,7 @@ export async function POST(request: Request) {
       if (retryAfter !== null) response.headers.set("Retry-After", String(retryAfter));
       return response;
     }
-    console.warn("Assistant reasoning rejected:", error instanceof Error && /^OpenRouter /.test(error.message) ? error.message : error instanceof Error ? error.name : "UnknownError");
+    console.warn("Assistant reasoning rejected:", error instanceof Error && /^(OpenRouter|Gemini) /.test(error.message) ? error.message : error instanceof Error ? error.name : "UnknownError");
     return finish({ state: "failed", title: "Reasoning failed", intent: "assistant.reason", detail: "No action was taken.",
       reply: "The request could not be safely interpreted. Nothing was changed." }, 503, pending, continuing ? savedRequestKey : null);
   }
@@ -136,7 +136,9 @@ export async function POST(request: Request) {
   if (result.ok) description.reply = localizeTrustedReply(parsed.data.text, result.data, description.reply);
   const shoppingList = result.ok && (reasoning.tool.intent === "inventory.checkList" || reasoning.tool.intent === "sales.prepareSpoken")
     ? shoppingDraftSchema.parse((result.data as { draft: unknown }).draft) : undefined;
-  const answer: AssistantResponse = { state: result.ok ? shoppingList ? "draft" : "confirmed" : "failed", intent: reasoning.tool.intent, ...description, shoppingList };
+  const answer: AssistantResponse = { state: result.ok ? shoppingList ? "draft" : "confirmed" : "failed",
+    intent: reasoning.tool.intent === "inventory.adjustConfirmed" ? "inventory.adjust" : reasoning.tool.intent,
+    ...description, shoppingList };
 
   const persisted = await finish(answer, result.ok ? 200 : 409);
   if (!persisted.ok && persisted.status === 503) return persisted;

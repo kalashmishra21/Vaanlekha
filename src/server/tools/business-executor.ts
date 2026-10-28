@@ -34,7 +34,10 @@ export interface BusinessRepository {
 }
 
 function normalizedName(value: string): string {
-  return value.toLocaleLowerCase("en-IN").normalize("NFKC").replace(/\bji\b/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return value.toLocaleLowerCase("en-IN").normalize("NFKC")
+    .replace(/आइस\s*क्रीम|आइस्क्रीम|आईस्क्रीम|ice\s*cream/gu, "icecream")
+    .replace(/चीनी/gu, "sugar").replace(/दूध/gu, "milk").replace(/तेल/gu, "oil")
+    .replace(/\bji\b/gu, "").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
 function matchByName<T extends { name: string }>(records: T[], rawName: string): T | null {
@@ -70,6 +73,15 @@ function clarificationResult(question: string, pending: PendingClarification): T
   return { ok: false, clarification: { question, pending } };
 }
 
+function stockDelta(delta: number, spokenUnit: string | undefined, savedUnit: string): number | null {
+  if (!spokenUnit) return delta;
+  if (normalizedName(spokenUnit) === normalizedName(savedUnit)) return delta;
+  const from = parseMerchantUnit(spokenUnit);
+  const to = parseMerchantUnit(savedUnit);
+  const converted = from && to ? convertQuantity(Math.abs(delta), from, to) : null;
+  return converted === null ? null : Math.sign(delta) * converted;
+}
+
 export class BusinessToolExecutor implements TrustedToolExecutor {
   constructor(private readonly repository: BusinessRepository, private readonly requestKey: string = crypto.randomUUID()) {}
 
@@ -78,16 +90,21 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
       switch (call.intent) {
         case "product.create": {
           const existing = matchByName(await this.repository.products(), call.arguments.name);
-          if (existing) return clarificationResult(`A product named ${existing.name} already exists. Should I add ${call.arguments.openingStock} to its stock instead? Nothing has changed.`, {
-            kind: "product-existing-confirm", product: existing.name, delta: call.arguments.openingStock,
-          });
+          if (existing) {
+            const delta = stockDelta(call.arguments.openingStock, call.arguments.unit, existing.unit);
+            if (delta === null) return { ok: false, error: `The requested unit cannot be safely converted to ${existing.unit}. No stock changed.` };
+            return clarificationResult(`A product named ${existing.name} already exists. Should I add ${delta} ${existing.unit} to its stock instead? Nothing has changed.`, {
+              kind: "product-existing-confirm", product: existing.name, delta, unit: existing.unit,
+            });
+          }
           const product = await this.repository.createProduct({
             name: call.arguments.name, unit: call.arguments.unit, sellingPrice: call.arguments.sellingPrice,
             openingStock: call.arguments.openingStock, threshold: call.arguments.threshold,
           }, this.requestKey);
           return { ok: true, data: { intent: call.intent, product: product.name, unit: product.unit, sellingPrice: product.sellingPrice, stock: product.currentStock } };
         }
-        case "inventory.adjust": {
+        case "inventory.adjust":
+        case "inventory.adjustConfirmed": {
           const product = matchByName(await this.repository.products(), call.arguments.product);
           if (!product && call.arguments.delta > 0 && call.arguments.unit) return clarificationResult(
             `${call.arguments.product} is not in inventory. What selling price should I use per ${call.arguments.unit} to create it with ${call.arguments.delta} opening units? Nothing has been changed.`,
@@ -98,16 +115,14 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
             { kind: "product-create-unit", product: call.arguments.product, openingStock: call.arguments.delta },
           );
           if (!product) return { ok: false, error: "Product not found. No stock changed." };
-          let delta = call.arguments.delta;
-          if (call.arguments.unit) {
-            const spokenUnit = parseMerchantUnit(call.arguments.unit);
-            const savedUnit = parseMerchantUnit(product.unit);
-            const converted = spokenUnit && savedUnit ? convertQuantity(Math.abs(delta), spokenUnit, savedUnit) : null;
-            if (converted === null) return { ok: false, error: `The requested unit cannot be safely converted to ${product.unit}. No stock changed.` };
-            delta = Math.sign(delta) * converted;
-          }
+          const delta = stockDelta(call.arguments.delta, call.arguments.unit, product.unit);
+          if (delta === null) return { ok: false, error: `The requested unit cannot be safely converted to ${product.unit}. No stock changed.` };
+          if (call.intent === "inventory.adjust") return clarificationResult(
+            `Should I ${delta > 0 ? "add" : "remove"} ${Math.abs(delta)} ${product.unit} ${delta > 0 ? "to" : "from"} ${product.name} stock? Reply yes or cancel. Nothing has changed.`,
+            { kind: "product-existing-confirm", product: product.name, delta, unit: product.unit },
+          );
           const newStock = await this.repository.adjustStock(product.id, delta, this.requestKey);
-          return { ok: true, data: { intent: call.intent, product: product.name, unit: product.unit, delta, newStock } };
+          return { ok: true, data: { intent: "inventory.adjust", product: product.name, unit: product.unit, delta, newStock } };
         }
         case "inventory.getStock": {
           const product = matchByName(await this.repository.products(), call.arguments.product);

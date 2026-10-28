@@ -10,11 +10,11 @@ import { ProfileControl } from "./profile-control";
 import { AppearanceControl } from "./appearance-control";
 
 const AssistantWorkspace = dynamic(() => import("@/components/assistant/assistant-workspace").then((module) => module.AssistantWorkspace),
-  { loading: () => <div className="saathi-drawer-loading" role="status">Opening Saathi…</div> });
+  { loading: () => <div className="saathi-drawer-loading" role="status">Opening Vaani…</div> });
 
 export function WorkspaceChrome({ children, shopName, status, description, demo, connected, providerMode, reasonerMode, voiceAvailable }: {
   children: ReactNode; shopName: string; status: string; description: string; demo: boolean;
-  connected: boolean; providerMode: "mock" | "gnani"; reasonerMode: "mock" | "openrouter"; voiceAvailable: boolean;
+  connected: boolean; providerMode: "mock" | "gnani"; reasonerMode: "mock" | "openrouter" | "gemini"; voiceAvailable: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
@@ -81,14 +81,14 @@ export function WorkspaceChrome({ children, shopName, status, description, demo,
       </header>
       <main className="workspace-main" hidden={expanded}>{children}</main>
       {(assistantLoaded || expanded) && <div ref={drawer} className={expanded ? "shared-assistant-full" : "shared-assistant-drawer"} hidden={!assistantVisible}
-        role={expanded ? undefined : "dialog"} aria-modal={expanded ? undefined : true} aria-label="Saathi assistant">
+        role={expanded ? undefined : "dialog"} aria-modal={expanded ? undefined : true} aria-label="Vaani assistant">
         <AssistantWorkspace connected={connected} providerMode={providerMode} reasonerMode={reasonerMode} voiceAvailable={voiceAvailable}
           expanded={expanded} onClose={() => setDrawerOpen(false)} />
       </div>}
     </div>
     {!expanded && !drawerOpen && <button ref={floatingTrigger} type="button" className="saathi-float-trigger" onClick={() => { setAssistantLoaded(true); setDrawerOpen(true); }}
-      aria-label="Open Saathi assistant"><MessageCircle size={22} aria-hidden="true" /><span>Ask Saathi</span></button>}
-    {drawerOpen && !expanded && <button type="button" className="saathi-drawer-scrim" aria-label="Close Saathi assistant" onClick={() => setDrawerOpen(false)} />}
+      aria-label="Open Vaani assistant"><MessageCircle size={22} aria-hidden="true" /><span>Ask Vaani</span></button>}
+    {drawerOpen && !expanded && <button type="button" className="saathi-drawer-scrim" aria-label="Close Vaani assistant" onClick={() => setDrawerOpen(false)} />}
     <dialog ref={mobile} className="mobile-nav-dialog" aria-label="Workspace navigation" onClick={(event) => { if (event.target === mobile.current) mobile.current.close(); }}>
       <div className="mobile-nav-content">{sidebar(true)}</div>
     </dialog>

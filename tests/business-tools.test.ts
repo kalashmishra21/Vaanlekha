@@ -121,7 +121,13 @@ describe("business boundary", () => {
   it("confirms a stock adjustment only after the repository succeeds", async () => {
     const fake = fakeRepository();
     const executor = new BusinessToolExecutor(fake.repository);
-    const result = await executeValidatedToolCall({ intent: "inventory.adjust", arguments: { product: "Maggi", delta: 20 } }, executor);
+    const proposal = await executeValidatedToolCall({ intent: "inventory.adjust", arguments: { product: "Maggi", delta: 20 } }, executor);
+    expect(proposal).toMatchObject({ ok: false, clarification: { pending: { kind: "product-existing-confirm", delta: 20 } } });
+    expect(fake.getStock()).toBe(20);
+    if (!("clarification" in proposal)) throw new Error("Expected stock confirmation");
+    const confirmed = await new MockAIProvider().reason({ text: "haan", pending: proposal.clarification.pending });
+    if (confirmed.kind !== "tool_call") throw new Error("Expected confirmed stock call");
+    const result = await executeValidatedToolCall(confirmed.tool, executor);
     expect(result).toMatchObject({ ok: true, data: { newStock: 40 } });
     expect(fake.getStock()).toBe(40);
     expect(describeToolResult(result).reply).toContain("Done.");
@@ -129,10 +135,34 @@ describe("business boundary", () => {
 
   it("does not claim success when stock is insufficient", async () => {
     const fake = fakeRepository();
-    const result = await new BusinessToolExecutor(fake.repository).execute({ intent: "inventory.adjust", arguments: { product: "Maggi", delta: -21 } });
+    const executor = new BusinessToolExecutor(fake.repository);
+    const proposal = await executor.execute({ intent: "inventory.adjust", arguments: { product: "Maggi", delta: -21 } });
+    expect(proposal).toMatchObject({ clarification: { pending: { delta: -21 } } });
+    expect(fake.getStock()).toBe(20);
+    if (!("clarification" in proposal)) throw new Error("Expected stock confirmation");
+    const confirmed = await new MockAIProvider().reason({ text: "yes", pending: proposal.clarification.pending });
+    if (confirmed.kind !== "tool_call") throw new Error("Expected confirmed stock call");
+    const result = await executor.execute(confirmed.tool);
     expect(result.ok).toBe(false);
     expect(fake.getStock()).toBe(20);
     expect(describeToolResult(result).title).toBe("Action not completed");
+  });
+
+  it.each([
+    ["आइसक्रीम", "Ice Cream", "packet", 10],
+    ["Ice Cream", "आइसक्रीम", "pack", 10],
+  ])("matches %s to the saved %s alias and waits for approval", async (savedName, requestName, unit, delta) => {
+    let stock = 10;
+    const repository = { products: async () => [{ id: "11111111-1111-4111-8111-111111111119", name: savedName, unit: "packet", currentStock: stock, sellingPrice: 25 }],
+      adjustStock: async (_id: string, change: number) => { stock += change; return stock; } } as unknown as BusinessRepository;
+    const executor = new BusinessToolExecutor(repository);
+    const proposal = await executor.execute({ intent: "inventory.adjust", arguments: { product: requestName, unit, delta } });
+    expect(proposal).toMatchObject({ clarification: { pending: { kind: "product-existing-confirm", delta: 10, unit: "packet" } } });
+    expect(stock).toBe(10);
+    if (!("clarification" in proposal)) throw new Error("Expected confirmation");
+    const yes = await new MockAIProvider().reason({ text: "हाँ", pending: JSON.parse(JSON.stringify(proposal.clarification.pending)) });
+    if (yes.kind !== "tool_call") throw new Error("Expected stock call after approval");
+    expect(await executor.execute(yes.tool)).toMatchObject({ ok: true, data: { newStock: 20 } });
   });
 
   it("reads Rahul Sharma from the Sharma ji alias and derives his balance", async () => {

@@ -3,13 +3,13 @@ import { voiceStates, type VoiceState } from "@/features/assistant/voice-states"
 
 const icons = { idle: CircleDot, listening: Mic, transcribing: ScanText, reasoning: LoaderCircle, executing: CircleCheck, speaking: Volume2, error: CircleAlert };
 
-export function VoiceStateIndicator({ state, realVoice = false, realReasoning = false, connected = false }: { state: VoiceState; realVoice?: boolean; realReasoning?: boolean; connected?: boolean }) {
+export function VoiceStateIndicator({ state, realVoice = false, realReasoning = false, connected = false, reasonerMode = "mock" }: { state: VoiceState; realVoice?: boolean; realReasoning?: boolean; connected?: boolean; reasonerMode?: "mock" | "openrouter" | "gemini" }) {
   const Icon = icons[state];
   const detail = realVoice && state === "idle" ? "Type a request, attach a list or use the microphone."
     : realVoice && state === "listening" ? "Microphone is recording. Stop when finished."
     : realVoice && state === "transcribing" ? "Gnani Prisma is turning speech into text."
     : realVoice && state === "speaking" ? "Gnani Timbre is playing the verified reply."
-    : realReasoning && state === "reasoning" ? "OpenRouter is selecting a structured intent."
+    : realReasoning && state === "reasoning" ? `${reasonerMode === "gemini" ? "Gemini" : "OpenRouter"} is selecting a structured intent.`
     : realReasoning && state === "error" ? "No business action was confirmed. Please try again."
     : connected && state === "executing" ? "A trusted server tool is checking store data."
     : voiceStates[state].detail;

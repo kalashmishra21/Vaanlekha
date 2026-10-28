@@ -15,6 +15,10 @@ export const toolCallSchema = z.discriminatedUnion("intent", [
     intent: z.literal("inventory.adjust"),
     arguments: z.object({ product: name, delta: z.number().finite().min(-100000).max(100000).refine((value) => value !== 0 && hasDecimalPlaces(value, 3)), unit: name.optional() }).strict(),
   }).strict(),
+  // Only the server-owned confirmation state can produce this intent.
+  z.object({ intent: z.literal("inventory.adjustConfirmed"), arguments: z.object({
+    product: name, delta: z.number().finite().min(-100000).max(100000).refine((value) => value !== 0 && hasDecimalPlaces(value, 3)), unit: name.optional(),
+  }).strict() }).strict(),
   z.object({
     intent: z.literal("inventory.getStock"),
     arguments: z.object({ product: name }).strict(),
@@ -63,7 +67,8 @@ export const pendingClarificationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("product-create-confirm"), product: name, unit: name, openingStock: measuredAmount, sellingPrice: z.number().finite().positive().max(999999999) }).strict(),
   z.object({ kind: z.literal("product-create-unit"), product: name, openingStock: measuredQuantity }).strict(),
   z.object({ kind: z.literal("product-action-choice"), product: name, unit: name, quantity: measuredQuantity }).strict(),
-  z.object({ kind: z.literal("product-existing-confirm"), product: name, delta: measuredQuantity }).strict(),
+  z.object({ kind: z.literal("product-existing-confirm"), product: name,
+    delta: z.number().finite().min(-100000).max(100000).refine((value) => value !== 0 && hasDecimalPlaces(value, 3)), unit: name.optional() }).strict(),
   z.object({ kind: z.literal("khata-create-confirm"), customer: name, amountRupees: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal("khata-currency-confirm"), customer: name, amountRupees: z.number().int().positive(), type: z.enum(["gave", "received"]) }).strict(),
   z.object({ kind: z.literal("customer-name") }).strict(),
@@ -77,7 +82,7 @@ export const reasoningResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("tool_call"), tool: toolCallSchema }).strict(),
   z.object({ kind: z.literal("clarify"), question: z.string().trim().min(1).max(400), pending: pendingClarificationSchema.optional(),
     intent: z.enum([
-      "inventory.adjust", "inventory.getStock", "inventory.checkList", "inventory.getReorderSuggestions", "product.create",
+      "inventory.adjust", "inventory.adjustConfirmed", "inventory.getStock", "inventory.checkList", "inventory.getReorderSuggestions", "product.create",
       "sales.prepareSpoken",
       "orders.getOpen", "orders.getStatus", "orders.createDraft", "orders.transition", "orders.transitionConfirmed",
       "customer.create", "khata.getBalance", "khata.addEntry", "khata.openAccount", "supplier.list", "supplier.create",

@@ -8,6 +8,7 @@ import { isAmbiguousMerchantText, isConversationOnlyMessage } from "../../assist
 import { isGroundedToolCall, mentionsMerchantEntity } from "../../assistant/utterance-safety";
 
 const endpoint = "https://openrouter.ai/api/v1/chat/completions";
+export type ReasonerTransport = { endpoint: string; provider: "OpenRouter" | "Gemini" };
 const field = { type: "string" } as const;
 const integer = { type: "integer" } as const;
 const parameters = (properties: Record<string, unknown>, required: string[]) =>
@@ -64,6 +65,7 @@ export class OpenRouterReasoner {
     private readonly request: typeof fetch = fetch,
     private readonly today: () => string = todayInIndia,
     private readonly beforeNetworkRequest?: () => Promise<void>,
+    private readonly transport: ReasonerTransport = { endpoint, provider: "OpenRouter" },
   ) {}
 
   async reason(input: ReasoningInput): Promise<ReasoningResult> {
@@ -76,9 +78,10 @@ export class OpenRouterReasoner {
     if (recognized.kind !== "unsupported") return reasoningResultSchema.parse(recognized);
     await this.beforeNetworkRequest?.();
     const deadline = Date.now() + 40_000;
+    const started = performance.now();
     let response: Response;
     try {
-      response = await retryProviderRequest(() => this.request(endpoint, {
+      response = await retryProviderRequest(() => this.request(this.transport.endpoint, {
         method: "POST",
         headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -99,21 +102,23 @@ export class OpenRouterReasoner {
         cache: "no-store",
       }));
     } catch {
-      throw new ProviderRequestError("OpenRouter", 503, "1");
+      if (process.env.AI_REASONER_TRACE === "1") console.info("Reasoner request", { provider: this.transport.provider, status: "network-error", durationMs: Math.round(performance.now() - started) });
+      throw new ProviderRequestError(this.transport.provider, 503, "1");
     }
-    if (!response.ok) throw new ProviderRequestError("OpenRouter", response.status, response.headers.get("retry-after"));
+    if (process.env.AI_REASONER_TRACE === "1") console.info("Reasoner request", { provider: this.transport.provider, status: response.status, durationMs: Math.round(performance.now() - started) });
+    if (!response.ok) throw new ProviderRequestError(this.transport.provider, response.status, response.headers.get("retry-after"));
     const raw: unknown = await response.json();
     if (z.object({ error: z.unknown() }).safeParse(raw).success) {
-      throw new Error("OpenRouter reasoning provider is temporarily unavailable.");
+      throw new Error(`${this.transport.provider} reasoning provider is temporarily unavailable.`);
     }
     const parsed = completionSchema.safeParse(raw);
-    if (!parsed.success) throw new Error("OpenRouter returned an invalid completion.");
+    if (!parsed.success) throw new Error(`${this.transport.provider} returned an invalid completion.`);
     const calls = parsed.data.choices[0].message.tool_calls;
     if (!calls?.length) return { kind: "unsupported", message: "No safe intent was identified." };
-    if (calls.length !== 1) throw new Error("OpenRouter proposed multiple actions.");
+    if (calls.length !== 1) throw new Error(`${this.transport.provider} proposed multiple actions.`);
     if (calls[0].function.name === "clarify_openAccount") {
       let args: unknown;
-      try { args = JSON.parse(calls[0].function.arguments); } catch { throw new Error("OpenRouter returned invalid clarification arguments."); }
+      try { args = JSON.parse(calls[0].function.arguments); } catch { throw new Error(`${this.transport.provider} returned invalid clarification arguments.`); }
       const customer = z.object({ customer: z.string().trim().min(1).max(120) }).strict().parse(args).customer;
       if (!mentionsMerchantEntity(text, customer)) {
         return { kind: "clarify", question: "Which customer should I open a khata for? No account was created." };
@@ -121,9 +126,9 @@ export class OpenRouterReasoner {
       return reasoningResultSchema.parse({ kind: "clarify", question: `${customer} ke khate mein shuru mein kitna udhaar likhun?`, pending: { kind: "open-account-amount", customer } });
     }
     const intent = intentByFunction[calls[0].function.name];
-    if (!intent) throw new Error("OpenRouter proposed an unknown action.");
+    if (!intent) throw new Error(`${this.transport.provider} proposed an unknown action.`);
     let args: unknown;
-    try { args = JSON.parse(calls[0].function.arguments); } catch { throw new Error("OpenRouter returned invalid tool arguments."); }
+    try { args = JSON.parse(calls[0].function.arguments); } catch { throw new Error(`${this.transport.provider} returned invalid tool arguments.`); }
     const proposal = reasoningResultSchema.parse({ kind: "tool_call", tool: { intent, arguments: args } });
     if (proposal.kind !== "tool_call" || !isGroundedToolCall(text, proposal.tool)) {
       return { kind: "clarify", question: "I could not confirm the item and action from that request. Please say exactly what to check or change, including any quantity or amount. Nothing was changed." };

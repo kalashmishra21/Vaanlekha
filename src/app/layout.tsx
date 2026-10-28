@@ -32,8 +32,8 @@ const siteUrl = publicSiteUrl();
 
 export const metadata: Metadata = {
   metadataBase: siteUrl ?? new URL("http://localhost:3100"),
-  applicationName: "DukaanSaathi AI",
-  title: "DukaanSaathi AI — Your store, understood by voice",
+  applicationName: "Vaanlekha",
+  title: "Vaanlekha — Your store, understood by voice",
   description: "A multilingual AI copilot for Indian retailers to manage inventory, khata and sales through natural conversation and trusted store tools.",
   robots: { index: Boolean(siteUrl), follow: Boolean(siteUrl) },
 };

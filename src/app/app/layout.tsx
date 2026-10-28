@@ -6,7 +6,7 @@ import { BrandLockup } from "@/components/layout/brand";
 import { getShopContext } from "@/server/data/context";
 import { readProviderConfig } from "@/lib/env/config";
 
-export const metadata: Metadata = { title: "Workspace | DukaanSaathi AI", robots: { index: false, follow: false } };
+export const metadata: Metadata = { title: "Workspace | Vaanlekha", robots: { index: false, follow: false } };
 
 function WorkspaceLoadingShell() {
   return <div className="workspace-shell" aria-busy="true">
@@ -25,12 +25,16 @@ async function WorkspaceLayoutData({ children }: Readonly<{ children: React.Reac
   const connected = context.kind === "ready";
   const demo = connected && context.shop.name === "DukaanSaathi Demo Mart";
   const config = readProviderConfig();
-  const realReasoning = config.AI_REASONER === "openrouter";
+  const reasonerDescription = config.AI_REASONER === "gemini"
+    ? "Store data is live. Gemini reasoning is configured with OpenRouter fallback."
+    : config.AI_REASONER === "openrouter"
+      ? "Store data is live. OpenRouter reasoning is configured."
+      : "Store data is live. Reasoning uses the mock provider.";
   return (
     <WorkspaceChrome shopName={connected ? context.shop.name : "Workspace setup"} demo={demo}
       connected={connected} providerMode={config.AI_PROVIDER} reasonerMode={config.AI_REASONER} voiceAvailable={Boolean(process.env.GNANI_API_KEY)}
-      status={demo ? "Demo shop connected" : connected ? "Store connected" : "Saathi is ready"}
-      description={connected ? realReasoning ? "Store data is live. OpenRouter reasoning is configured." : "Store data is live. Reasoning uses the mock provider." : "Connect a shop to enable trusted business actions."}>
+      status={demo ? "Demo shop connected" : connected ? "Store connected" : "Vaani is ready"}
+      description={connected ? reasonerDescription : "Connect a shop to enable trusted business actions."}>
       {children}
     </WorkspaceChrome>
   );

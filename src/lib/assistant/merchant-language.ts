@@ -14,6 +14,7 @@ const hindiWords: ReadonlyArray<[RegExp, string]> = [
   [/बताओ/gu, "batao"], [/कितना/gu, "kitna"], [/की/gu, "ki"], [/का/gu, "ka"], [/के/gu, "ke"], [/को/gu, "ko"],
   [/स्टॉक/gu, "stock"], [/ब्रेड/gu, "bread"],
   [/दिखाओ/gu, "dikhao"], [/ऑर्डर/gu, "order"], [/रद्द/gu, "cancel"], [/मिला|आया/gu, "received"], [/है/gu, "hai"],
+  [/सूची/gu, "list"],
   [/पचास/gu, "pachaas"], [/पैंतालीस/gu, "paintalis"], [/पच्चीस/gu, "pachis"], [/बीस/gu, "bees"],
   [/दस/gu, "das"], [/एक/gu, "ek"], [/दो/gu, "do"], [/तीन/gu, "teen"], [/चार/gu, "chaar"],
   [/पाँच|पांच/gu, "paanch"], [/छह|छः/gu, "chhe"], [/सात/gu, "saat"], [/आठ/gu, "aath"], [/नौ/gu, "nau"],
@@ -127,6 +128,14 @@ function parsePendingProductPrice(text: string, pending: Extract<PendingClarific
   const product = canonical(normalizeMerchantText(pending.product).toLocaleLowerCase("en-IN"));
   const unit = normalizeMerchantText(pending.unit).toLocaleLowerCase("en-IN");
   let amountText = canonical(normalized).replaceAll(product, " ");
+  // A follow-up may use the final name token ("kulfi" for "Test Kulfi").
+  // Remove it only when it belongs to the saved product; a different item
+  // must still interrupt this pending request.
+  const productWords = product.split(/\s+/u);
+  const lastWord = productWords.at(-1);
+  if (productWords.length > 1 && lastWord && lastWord.length >= 3) {
+    amountText = amountText.replace(new RegExp(`\\b${lastWord.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\b`, "gu"), " ");
+  }
   amountText = amountText.replace(/₹|प्रति|\b(?:inr|rs\.?|rupees?|rupaye|rupay|per|each|ki|ka|ke|ek|one|a|an|for|hai)\b/gu, " ");
   amountText = amountText.replaceAll(unit, " ").replace(/\b(?:packets?|pieces?|units?|bottles?|boxes?|litres?|liters?)\b/gu, " ").replace(/\s+/gu, " ").trim();
   const amount = parseMerchantNumber(amountText);
@@ -164,8 +173,8 @@ function confirmPending(pending: PendingClarification, text: string): ReasoningR
     return clarification(`Is ${pending.product} a new product or existing stock? Reply new or existing. Nothing changed.`, pending, "inventory.adjust");
   }
   if (pending.kind === "product-existing-confirm") {
-    if (!isYes(text)) return clarification(`Should I add ${pending.delta} to existing ${pending.product} stock? Reply yes or cancel. No stock has changed.`, pending, "inventory.adjust");
-    return tool("inventory.adjust", { product: pending.product, delta: pending.delta });
+    if (!isYes(text)) return clarification(`Should I ${pending.delta > 0 ? "add" : "remove"} ${Math.abs(pending.delta)} ${pending.unit ?? "units"} ${pending.delta > 0 ? "to" : "from"} existing ${pending.product} stock? Reply yes or cancel. No stock has changed.`, pending, "inventory.adjust");
+    return tool("inventory.adjustConfirmed", { product: pending.product, delta: pending.delta, ...(pending.unit ? { unit: pending.unit } : {}) });
   }
   if (pending.kind === "khata-create-confirm") {
     if (!isYes(text)) return clarification(`Should I open ${pending.customer}'s new khata with ₹${pending.amountRupees}? Reply yes or cancel. Nothing is saved yet.`, pending, "khata.openAccount");
@@ -301,7 +310,7 @@ export function pendingQuestion(pending: PendingClarification): string {
     case "product-create-confirm": return `Create ${pending.product} with ${pending.openingStock} ${pending.unit}(s) at ₹${pending.sellingPrice} each? Reply yes or cancel.`;
     case "product-create-unit": return `What unit should I use for ${pending.product}?`;
     case "product-action-choice": return `Is ${pending.product} new or existing stock?`;
-    case "product-existing-confirm": return `Should I add ${pending.delta} to existing ${pending.product} stock?`;
+    case "product-existing-confirm": return `Should I ${pending.delta > 0 ? "add" : "remove"} ${Math.abs(pending.delta)} ${pending.unit ?? "units"} ${pending.delta > 0 ? "to" : "from"} existing ${pending.product} stock?`;
     case "khata-create-confirm": return `Should I open ${pending.customer}'s khata with ₹${pending.amountRupees}? Reply yes or cancel.`;
     case "khata-currency-confirm": return `Please confirm whether this is ₹${pending.amountRupees} for ${pending.customer}. Khata uses INR.`;
     case "customer-name": return "What is the customer's name? Nothing has been added yet.";
@@ -421,7 +430,7 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
     return tool("sales.getDailySummary", { date: today });
 
   const bareProduct = /^(.+)\s+(\d+|[a-z]+(?:\s+sau)?)\s+(packets?|pieces?|units?|bottles?|boxes?)$/iu.exec(text);
-  if (bareProduct && !/^(?:increase|decrease|reduce)\b/iu.test(text)) {
+  if (bareProduct && !/\b(?:please|increase|decrease|reduce|restock|inventory|stock|add|remove)\b/iu.test(bareProduct[1])) {
     const quantity = parseMerchantNumber(bareProduct[2]);
     if (quantity !== null) return clarification(`Is ${canonicalProductName(bareProduct[1])} a new product or should I add ${quantity} to existing stock? No stock has changed.`,
       { kind: "product-action-choice", product: canonicalProductName(bareProduct[1]), quantity, unit: bareProduct[3].replace(/s$/iu, "") }, "inventory.adjust");

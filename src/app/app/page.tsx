@@ -22,7 +22,7 @@ export default async function Overview() {
   ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
 
   return <div className="overview-page business-page">
-    <div className="overview-heading"><div className="workspace-page-heading"><p className="workspace-eyebrow">OVERVIEW / {context.shop.name.toUpperCase()}</p><h1>Store <em>pulse.</em></h1><p>Today’s figures and recent actions, directly from your shop.</p></div><Link href="/app/assistant" className="overview-ask"><AudioLines size={21} strokeWidth={1.5} aria-hidden="true" /><span><strong>Ask Saathi</strong><small>Speak or type a store request</small></span><ArrowUpRight size={20} aria-hidden="true" /></Link></div>
+    <div className="overview-heading"><div className="workspace-page-heading"><p className="workspace-eyebrow">OVERVIEW / {context.shop.name.toUpperCase()}</p><h1>Store <em>pulse.</em></h1><p>Today’s figures and recent actions, directly from your shop.</p></div><Link href="/app/assistant" className="overview-ask"><AudioLines size={21} strokeWidth={1.5} aria-hidden="true" /><span><strong>Ask Vaani</strong><small>Speak or type a store request</small></span><ArrowUpRight size={20} aria-hidden="true" /></Link></div>
     <div className="metric-grid">
       <Link href="/app/sales" className="metric"><span>TODAY’S SALES</span><strong>{rupees(data.todaySales)}</strong><small>{data.saleCount} recorded sale{data.saleCount === 1 ? "" : "s"}</small></Link>
       <Link href="/app/orders" className="metric"><span>NEEDS REORDER</span><strong>{data.lowStock.length}</strong><small>Products at or below threshold</small></Link>

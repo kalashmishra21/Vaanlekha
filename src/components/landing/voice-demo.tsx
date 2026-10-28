@@ -43,7 +43,7 @@ export function LandingVoiceDemo() {
 
   return (
     <div className="demo-console">
-      <div className="demo-console-header"><span><AudioLines size={16} aria-hidden="true" /> SAATHI / VOICE PREVIEW</span><span className="demo-console-signal"><span /> MOCK MODE</span></div>
+      <div className="demo-console-header"><span><AudioLines size={16} aria-hidden="true" /> VAANI / VOICE PREVIEW</span><span className="demo-console-signal"><span /> MOCK MODE</span></div>
       <div className="demo-console-body">
         <p className="demo-small-label">SELECT A SAMPLE REQUEST</p>
         <div className="demo-requests">{samples.map((item, index) => <button key={item.phrase} type="button" className={selected === index ? "selected" : ""} aria-label={`${playing === index ? "Pause" : "Play"} sample: ${item.phrase}`} aria-pressed={playing === index} onClick={() => void choose(index)}><span>{item.phrase}</span>{playing === index ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}</button>)}</div>

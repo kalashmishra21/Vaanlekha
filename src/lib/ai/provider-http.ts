@@ -1,6 +1,6 @@
 export class ProviderRequestError extends Error {
   constructor(
-    readonly provider: "Gnani Prisma" | "Gnani Timbre" | "OpenRouter",
+    readonly provider: "Gnani Prisma" | "Gnani Timbre" | "OpenRouter" | "Gemini",
     readonly status: number,
     readonly retryAfter: string | null,
   ) {

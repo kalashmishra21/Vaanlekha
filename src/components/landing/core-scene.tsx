@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
-import type { CoreMode } from "./saathi-core";
+import type { CoreMode } from "./vaani-core";
 
 type CoreProps = { mode: CoreMode; onReady: () => void; onContextLost: () => void };
 

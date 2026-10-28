@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { ArrowDown, ArrowUpRight } from "lucide-react";
 import { SiteHeader } from "@/components/layout/site-header";
-import { DeferredSaathiCore } from "@/components/landing/deferred-saathi-core";
+import { DeferredVaaniCore } from "@/components/landing/deferred-vaani-core";
 import { DeferredLandingVoiceDemo } from "@/components/landing/deferred-voice-demo";
 import { LandingStory } from "@/components/landing/landing-story";
 import { publicSiteUrl } from "@/lib/seo/site-url";
@@ -14,23 +14,23 @@ const siteUrl = publicSiteUrl();
 const publicDescription = "A multilingual voice-first AI copilot for Indian retailers. Manage inventory, khata, sales and orders through conversation with verified store actions.";
 
 export const metadata: Metadata = {
-  title: "DukaanSaathi AI | Voice-first store management for Indian retailers",
+  title: "Vaanlekha | Voice-first store management for Indian retailers",
   description: publicDescription,
   alternates: siteUrl ? { canonical: siteUrl.href } : undefined,
   openGraph: {
     type: "website", locale: "en_IN",
-    title: "DukaanSaathi AI — Your store, understood by voice",
-    description: publicDescription, siteName: "DukaanSaathi AI",
+    title: "Vaanlekha — Your store, understood by voice",
+    description: publicDescription, siteName: "Vaanlekha",
     ...(siteUrl ? { url: siteUrl.href } : {}),
   },
-  twitter: { card: "summary_large_image", title: "DukaanSaathi AI", description: publicDescription },
+  twitter: { card: "summary_large_image", title: "Vaanlekha", description: publicDescription },
 };
 
 export default function Home() {
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    name: "DukaanSaathi AI",
+    name: "Vaanlekha",
     applicationCategory: "BusinessApplication",
     operatingSystem: "Web browser",
     description: publicDescription,
@@ -53,7 +53,7 @@ export default function Home() {
           </div>
           <p className="hero-honesty"><span aria-hidden="true" /> Simulated visual sequence · no microphone or store action</p>
         </div>
-        <DeferredSaathiCore />
+        <DeferredVaaniCore />
       </section>
 
       <LandingStory />
@@ -64,7 +64,7 @@ export default function Home() {
           <article className="bento-cell bento-command">
             <div className="bento-top"><span>ASSISTANT / COMMAND CENTER</span><span className="signal"><i /> Ready to help</span></div>
             <div className="command-content"><p className="command-prompt">“Sharma ji ka kitna udhaar hai?”</p><div className="command-line"><span className="command-symbol" aria-hidden="true">₹</span><div><strong>Khata balance</strong><small>Illustrative ledger result</small></div><b>₹770</b></div></div>
-            <div className="command-compose"><span>Ask Saathi about your store...</span><ArrowUpRight size={18} aria-hidden="true" /></div>
+            <div className="command-compose"><span>Ask Vaani about your store...</span><ArrowUpRight size={18} aria-hidden="true" /></div>
           </article>
           <article className="bento-cell bento-inventory">
             <div className="bento-top"><span>INVENTORY / ILLUSTRATIVE STOCK</span><span>03 ITEMS</span></div>
@@ -91,8 +91,8 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="closing"><div className="page-frame closing-inner"><span className="closing-mark" aria-hidden="true">D</span><div><h2>Commerce moves.<br /><em>Saathi keeps pace.</em></h2><p>Create an account to work with your own private store records.</p></div><Link href="/signin?mode=signup" aria-label="Create your account"><ArrowUpRight size={22} aria-hidden="true" /></Link></div></section>
+      <section className="closing"><div className="page-frame closing-inner"><span className="closing-mark" aria-hidden="true">V</span><div><h2>Commerce moves.<br /><em>Vaanlekha keeps pace.</em></h2><p>Create an account to work with your own private store records.</p></div><Link href="/signin?mode=signup" aria-label="Create your account"><ArrowUpRight size={22} aria-hidden="true" /></Link></div></section>
     </main>
-    <footer className="site-footer page-frame"><span>DukaanSaathi AI</span><span>Voice-first tools · trusted store data</span></footer>
+    <footer className="site-footer page-frame"><span>Vaanlekha</span><span>Voice-first tools · trusted store data</span></footer>
   </div>;
 }

@@ -4,9 +4,9 @@ import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { CorePoster } from "./core-poster";
 
-const InteractiveCore = dynamic(() => import("./saathi-core").then((module) => module.SaathiCore), { ssr: false });
+const InteractiveCore = dynamic(() => import("./vaani-core").then((module) => module.VaaniCore), { ssr: false });
 
-export function DeferredSaathiCore() {
+export function DeferredVaaniCore() {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     // The mobile poster paints before hydration; its lightweight automatic
