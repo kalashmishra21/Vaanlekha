@@ -1,4 +1,5 @@
 import type { KhataEntry, Product } from "./schemas";
+import { hasDecimalPlaces } from "./precision";
 
 export function khataBalance(entries: Pick<KhataEntry, "type" | "amount">[]): number {
   const paise = entries.reduce((total, entry) =>
@@ -19,10 +20,12 @@ export function salePreviewTotal(items: { productId: string; quantity: number }[
   const prices = new Map(products.map((product) => [product.id, Math.round(product.selling_price * 100)]));
   const paise = items.reduce((total, item) => {
     const price = prices.get(item.productId);
-    if (price === undefined || !Number.isInteger(item.quantity) || item.quantity <= 0) {
+    if (price === undefined || !hasDecimalPlaces(item.quantity, 3) || item.quantity <= 0) {
       throw new Error("Choose a valid product and quantity.");
     }
-    return total + price * item.quantity;
+    const line = price * Math.round(item.quantity * 1000);
+    if (line % 1000 !== 0) throw new Error("The line total cannot be recorded exactly in paise.");
+    return total + line / 1000;
   }, 0);
   return paise / 100;
 }

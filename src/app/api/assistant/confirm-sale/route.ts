@@ -10,10 +10,12 @@ import { missingIdempotencyKey, readIdempotencyKey } from "@/server/security/ide
 import { AssistantConversationRepository } from "@/server/data/assistant-conversations";
 import { ConversationRequestConflictError } from "@/lib/assistant/conversation-errors";
 import type { AssistantResponse } from "@/lib/business/assistant-response";
+import { localizedSaleConfirmation } from "@/lib/assistant/response-language";
+import { measuredQuantity } from "@/lib/business/schemas";
 
 const requestSchema = z.object({
   confirmed: z.literal(true),
-  items: z.array(z.object({ productId: z.uuid(), quantity: z.number().int().min(1).max(10000) }).strict()).min(1).max(30),
+  items: z.array(z.object({ productId: z.uuid(), quantity: measuredQuantity.max(10000) }).strict()).min(1).max(30),
   paymentMethod: z.enum(["cash", "upi", "card"]),
   conversationId: z.uuid(),
   draftMessageId: z.uuid(),
@@ -56,11 +58,16 @@ export async function POST(request: Request) {
   }
 
   const call = toolCallSchema.parse({ intent: "sales.recordConfirmedBasket", arguments: {
-    items: parsed.data.items, paymentMethod: parsed.data.paymentMethod,
+    items: parsed.data.items.map((item, index) => ({ ...item,
+      ...(savedDraft.source === "spoken-sale" ? { expectedUnitPrice: savedDraft.items[index].unitPrice } : {}) })), paymentMethod: parsed.data.paymentMethod,
   } });
   const result = await executeValidatedToolCall(call, new BusinessToolExecutor(new SupabaseBusinessRepository(context), requestKey));
+  const description = describeToolResult(result);
+  if (result.ok) description.reply = localizedSaleConfirmation(savedDraft.source,
+    savedDraft.items[0].productName ?? savedDraft.items[0].requestedName,
+    (result.data as { total: number }).total, description.reply);
   const answer: AssistantResponse = { state: result.ok ? "confirmed" : "failed", intent: call.intent,
-    ...describeToolResult(result), sourceDraftId: parsed.data.draftMessageId };
+    ...description, sourceDraftId: parsed.data.draftMessageId };
   let messageId: string;
   try { messageId = await conversation.complete(parsed.data.conversationId, requestKey, answer, null, null); }
   catch { return Response.json({ error: "The sale result could not be saved to the conversation. Check Sales before retrying." }, { status: 503 }); }

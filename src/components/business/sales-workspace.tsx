@@ -19,8 +19,8 @@ export function SalesWorkspace({ products, sales }: { products: Product[]; sales
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
   const todaySales = sales.filter((sale) => new Date(sale.created_at).toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }) === today);
   const exceedsShownStock = items.some((item) => item.quantity > (products.find((product) => product.id === item.productId)?.current_stock ?? 0));
-  let preview = 0;
-  try { preview = salePreviewTotal(items, products); } catch { preview = 0; }
+  let preview: number | null = null;
+  try { preview = salePreviewTotal(items, products); } catch { preview = null; }
 
   async function saveSale(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -38,12 +38,13 @@ export function SalesWorkspace({ products, sales }: { products: Product[]; sales
     <div className="business-columns">
       <section className="business-section"><div className="section-heading"><span>NEW SALE</span><span>INR</span></div>
         {available.length ? <form className="business-form" onSubmit={(event) => void saveSale(event)}>
-          <div className="sale-lines">{items.map((item, index) => <div className="sale-line" key={index}><label>Product<select value={item.productId} onChange={(event) => setItems((current) => current.map((line, i) => i === index ? { ...line, productId: event.target.value } : line))}>{available.map((product) => <option key={product.id} value={product.id}>{product.name} · {rupees(product.selling_price)} · {product.current_stock} left</option>)}</select></label><label>Quantity<input type="number" min="1" step="1" value={item.quantity} onChange={(event) => setItems((current) => current.map((line, i) => i === index ? { ...line, quantity: Number(event.target.value) } : line))} required /></label><button className="line-remove" type="button" aria-label={`Remove line ${index + 1}`} onClick={() => setItems((current) => current.filter((_, i) => i !== index))}>Remove</button></div>)}</div>
+          <div className="sale-lines">{items.map((item, index) => <div className="sale-line" key={index}><label>Product<select value={item.productId} onChange={(event) => setItems((current) => current.map((line, i) => i === index ? { ...line, productId: event.target.value } : line))}>{available.map((product) => <option key={product.id} value={product.id}>{product.name} · {rupees(product.selling_price)} · {product.current_stock} left</option>)}</select></label><label>Quantity ({products.find((product) => product.id === item.productId)?.unit ?? "unit"})<input type="number" min={/^(?:kg|g|litre|ml)$/iu.test(products.find((product) => product.id === item.productId)?.unit ?? "") ? "0.001" : "1"} step={/^(?:kg|g|litre|ml)$/iu.test(products.find((product) => product.id === item.productId)?.unit ?? "") ? "0.001" : "1"} value={item.quantity} onChange={(event) => setItems((current) => current.map((line, i) => i === index ? { ...line, quantity: Number(event.target.value) } : line))} required /></label><button className="line-remove" type="button" aria-label={`Remove line ${index + 1}`} onClick={() => setItems((current) => current.filter((_, i) => i !== index))}>Remove</button></div>)}</div>
           <button className="text-button" type="button" onClick={() => setItems((current) => [...current, { productId: available.find((p) => !current.some((line) => line.productId === p.id))?.id ?? available[0].id, quantity: 1 }])} disabled={items.length >= available.length}>+ Add another product</button>
           <div className="payment-choice" role="group" aria-label="Payment method">{(["cash", "upi", "card"] as const).map((method) => <button type="button" key={method} aria-pressed={payment === method} onClick={() => setPayment(method)}>{method.toUpperCase()}</button>)}</div>
-          <div className="sale-total"><span>ESTIMATED TOTAL</span><strong>{rupees(preview)}</strong><small>Final price and stock are checked again by the database.</small></div>
+          <div className="sale-total"><span>ESTIMATED TOTAL</span><strong>{preview === null ? "—" : rupees(preview)}</strong><small>Final price and stock are checked again by the database.</small></div>
+          {preview === null && <p className="form-error" role="alert">Check quantities and prices. The total must be exact to the paisa.</p>}
           {exceedsShownStock && <p className="form-error" role="alert">Requested quantity exceeds the stock shown. The database will check again before saving.</p>}
-          <button className="button button-copper" type="submit" disabled={busy || !items.length || items.some((item) => item.quantity < 1) || new Set(items.map((item) => item.productId)).size !== items.length}>{busy ? "Recording…" : "Record sale"}</button>
+          <button className="button button-copper" type="submit" disabled={busy || !items.length || preview === null || items.some((item) => item.quantity <= 0) || new Set(items.map((item) => item.productId)).size !== items.length}>{busy ? "Recording…" : "Record sale"}</button>
         </form> : <p className="business-muted">Add a product with available stock before recording a sale.</p>}
         {notice && <p className="form-notice" role="status">{notice}{confirmedTotal !== null ? ` Confirmed total: ${rupees(confirmedTotal)}.` : ""}</p>}{error && <p className="form-error" role="alert">{error}</p>}
       </section>

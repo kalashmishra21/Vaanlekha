@@ -2,6 +2,8 @@ import { khataBalance, rupees } from "../../lib/business/calculations";
 import type { PendingClarification, ToolCall } from "../../lib/ai/types/tool-call";
 import type { TrustedToolExecutor, ToolExecutionResult } from "./contracts";
 import { matchShoppingList, type CatalogProduct } from "../../lib/assistant/match-shopping-list";
+import { shoppingDraftSchema } from "../../lib/assistant/shopping-list";
+import { convertQuantity, convertUnitPrice, parseMerchantUnit, quantityLineTotal } from "../../lib/assistant/vernacular-quantity";
 
 export type ProductRecord = CatalogProduct;
 export type CustomerRecord = { id: string; name: string };
@@ -21,7 +23,7 @@ export interface BusinessRepository {
   ledger(customerId: string): Promise<LedgerRecord[]>;
   addEntry(customerId: string, type: "gave" | "received", amount: number, note: string | undefined, requestKey: string): Promise<void>;
   dailySales(date: string): Promise<{ total: number; count: number }>;
-  recordSale(items: { productId: string; quantity: number }[], paymentMethod: "cash" | "upi" | "card", requestKey: string): Promise<{ saleId: string; total: number }>;
+  recordSale(items: { productId: string; quantity: number; expectedUnitPrice?: number }[], paymentMethod: "cash" | "upi" | "card", requestKey: string): Promise<{ saleId: string; total: number }>;
   suppliers(): Promise<SupplierRecord[]>;
   createSupplier(name: string, requestKey: string): Promise<string>;
   reorderSuggestions(): Promise<ReorderRecord[]>;
@@ -96,16 +98,41 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
             { kind: "product-create-unit", product: call.arguments.product, openingStock: call.arguments.delta },
           );
           if (!product) return { ok: false, error: "Product not found. No stock changed." };
-          const newStock = await this.repository.adjustStock(product.id, call.arguments.delta, this.requestKey);
-          return { ok: true, data: { intent: call.intent, product: product.name, delta: call.arguments.delta, newStock } };
+          let delta = call.arguments.delta;
+          if (call.arguments.unit) {
+            const spokenUnit = parseMerchantUnit(call.arguments.unit);
+            const savedUnit = parseMerchantUnit(product.unit);
+            const converted = spokenUnit && savedUnit ? convertQuantity(Math.abs(delta), spokenUnit, savedUnit) : null;
+            if (converted === null) return { ok: false, error: `The requested unit cannot be safely converted to ${product.unit}. No stock changed.` };
+            delta = Math.sign(delta) * converted;
+          }
+          const newStock = await this.repository.adjustStock(product.id, delta, this.requestKey);
+          return { ok: true, data: { intent: call.intent, product: product.name, unit: product.unit, delta, newStock } };
         }
         case "inventory.getStock": {
           const product = matchByName(await this.repository.products(), call.arguments.product);
           if (!product) return { ok: false, error: "Product not found." };
-          return { ok: true, data: { intent: call.intent, product: product.name, stock: product.currentStock } };
+          return { ok: true, data: { intent: call.intent, product: product.name, unit: product.unit, stock: product.currentStock } };
         }
         case "inventory.checkList": {
           const draft = matchShoppingList(call.arguments.items, await this.repository.products());
+          return { ok: true, data: { intent: call.intent, draft } };
+        }
+        case "sales.prepareSpoken": {
+          const product = matchByName(await this.repository.products(), call.arguments.product);
+          if (!product) return { ok: false, error: `${call.arguments.product} is not in inventory. Add it before recording a sale.` };
+          const savedUnit = parseMerchantUnit(product.unit);
+          if (!savedUnit) return { ok: false, error: `The saved unit for ${product.name} is not recognised. Review the product before recording a measured sale.` };
+          const quantity = convertQuantity(call.arguments.quantity, call.arguments.unit, savedUnit);
+          const expectedPrice = convertUnitPrice(call.arguments.unitPrice, call.arguments.priceUnit, savedUnit);
+          if (quantity === null || expectedPrice === null) return { ok: false, error: `The stated quantity or price unit cannot be converted to ${product.unit}. Say the unit explicitly; nothing changed.` };
+          if (expectedPrice !== product.sellingPrice) return { ok: false, error: `You said ₹${call.arguments.unitPrice} per ${call.arguments.priceUnit}, but ${product.name} is priced at ₹${product.sellingPrice} per ${product.unit}. Review the price before the sale.` };
+          const lineTotal = quantityLineTotal(quantity, product.sellingPrice);
+          if (lineTotal === null) return { ok: false, error: "The quantity and price cannot be recorded exactly in paise. Nothing changed." };
+          const draft = shoppingDraftSchema.parse({ source: "spoken-sale", items: [{ requestedName: call.arguments.product, quantity,
+            status: product.currentStock >= quantity ? "available" : "short", productId: product.id, productName: product.name,
+            stock: product.currentStock, unit: product.unit, unitPrice: product.sellingPrice, lineTotal }],
+          estimatedTotal: lineTotal, canConfirm: product.currentStock >= quantity });
           return { ok: true, data: { intent: call.intent, draft } };
         }
         case "customer.create": {
@@ -232,6 +259,13 @@ export function describeToolResult(result: ToolExecutionResult): { title: string
       return { title: "Shopping list draft", detail: `${available} of ${draft.items.length} items available · ${rupees(draft.estimatedTotal)} estimated`, reply: draft.canConfirm
         ? `I checked the list against your store. All ${draft.items.length} items are available. Review the draft and confirm before any sale is recorded.`
         : `I checked the list against your store. ${available} of ${draft.items.length} items are available; missing or short-stock items must be resolved before a sale. Nothing was changed.` };
+    }
+    case "sales.prepareSpoken": {
+      const draft = data.draft as { items: { quantity: number; productName: string; unit: string }[]; estimatedTotal: number; canConfirm: boolean };
+      const item = draft.items[0];
+      return { title: "Sale draft", detail: `${item.quantity} ${item.unit} ${item.productName} · ${rupees(draft.estimatedTotal)}`,
+        reply: draft.canConfirm ? `Review ${item.quantity} ${item.unit} of ${item.productName} for ${rupees(draft.estimatedTotal)}. Choose a payment method and confirm before anything is saved.`
+          : `${item.productName} has insufficient stock for ${item.quantity} ${item.unit}. No sale was saved.` };
     }
     case "customer.create":
       return { title: "Customer added", detail: String(data.customer), reply: `${data.customer} was added as a customer. No opening udhaar was recorded.` };

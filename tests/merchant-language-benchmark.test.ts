@@ -89,7 +89,10 @@ describe("offline merchant-language benchmark", () => {
     const product = await provider.reason({ text: "50 packet of Bread add kro new inventory h ye" });
     expect(product).toMatchObject({ kind: "clarify", pending: { kind: "product-create-price", product: "Bread", unit: "packet", openingStock: 50 } });
     if (product.kind !== "clarify" || !product.pending) throw new Error("Expected product price clarification");
-    await expect(provider.reason({ text: "₹18 per packet", pending: product.pending })).resolves.toMatchObject({
+    const productConfirmation = await provider.reason({ text: "₹18 per packet", pending: product.pending });
+    expect(productConfirmation).toMatchObject({ kind: "clarify", pending: { kind: "product-create-confirm", sellingPrice: 18 } });
+    if (productConfirmation.kind !== "clarify" || !productConfirmation.pending) throw new Error("Expected product approval");
+    await expect(provider.reason({ text: "haan", pending: productConfirmation.pending })).resolves.toMatchObject({
       kind: "tool_call", tool: { intent: "product.create", arguments: { name: "Bread", unit: "packet", sellingPrice: 18, openingStock: 50 } },
     });
 

@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { shoppingItemSchema } from "../../assistant/shopping-list";
+import { measuredAmount, measuredQuantity } from "../../business/schemas";
+import { hasDecimalPlaces } from "../../business/precision";
 
 const name = z.string().trim().min(1).max(120);
 const quantity = z.number().int().positive();
@@ -7,11 +9,11 @@ const quantity = z.number().int().positive();
 export const toolCallSchema = z.discriminatedUnion("intent", [
   z.object({ intent: z.literal("product.create"), arguments: z.object({
     name, unit: name, sellingPrice: z.number().finite().positive().max(999999999),
-    openingStock: z.number().int().min(0).max(100000), threshold: z.number().int().min(0).max(100000).default(5),
+    openingStock: measuredAmount, threshold: z.number().int().min(0).max(100000).default(5),
   }).strict() }).strict(),
   z.object({
     intent: z.literal("inventory.adjust"),
-    arguments: z.object({ product: name, delta: z.number().int().min(-100000).max(100000).refine((value) => value !== 0), unit: name.optional() }).strict(),
+    arguments: z.object({ product: name, delta: z.number().finite().min(-100000).max(100000).refine((value) => value !== 0 && hasDecimalPlaces(value, 3)), unit: name.optional() }).strict(),
   }).strict(),
   z.object({
     intent: z.literal("inventory.getStock"),
@@ -28,8 +30,12 @@ export const toolCallSchema = z.discriminatedUnion("intent", [
   z.object({ intent: z.literal("customer.create"), arguments: z.object({ customer: name }).strict() }).strict(),
   z.object({ intent: z.literal("khata.openAccount"), arguments: z.object({ customer: name, amountRupees: quantity.max(10000000) }).strict() }).strict(),
   z.object({ intent: z.literal("inventory.checkList"), arguments: z.object({ items: z.array(shoppingItemSchema).min(1).max(30) }).strict() }).strict(),
+  z.object({ intent: z.literal("sales.prepareSpoken"), arguments: z.object({
+    product: name, quantity: measuredQuantity.max(10000), unit: z.enum(["kg", "g", "litre", "ml", "packet", "piece"]),
+    unitPrice: z.number().finite().positive().max(999999999), priceUnit: z.enum(["kg", "g", "litre", "ml", "packet", "piece"]),
+  }).strict() }).strict(),
   z.object({ intent: z.literal("sales.recordConfirmedBasket"), arguments: z.object({
-    items: z.array(z.object({ productId: z.uuid(), quantity: z.number().int().min(1).max(10000) }).strict()).min(1).max(30),
+    items: z.array(z.object({ productId: z.uuid(), quantity: measuredQuantity.max(10000), expectedUnitPrice: z.number().finite().min(0).max(999999999).optional() }).strict()).min(1).max(30),
     paymentMethod: z.enum(["cash", "upi", "card"]),
   }).strict() }).strict(),
   z.object({
@@ -53,10 +59,11 @@ export const toolCallSchema = z.discriminatedUnion("intent", [
 
 export const pendingClarificationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("open-account-amount"), customer: name }).strict(),
-  z.object({ kind: z.literal("product-create-price"), product: name, unit: name, openingStock: z.number().int().min(0).max(100000) }).strict(),
-  z.object({ kind: z.literal("product-create-unit"), product: name, openingStock: z.number().int().positive().max(100000) }).strict(),
-  z.object({ kind: z.literal("product-action-choice"), product: name, unit: name, quantity: z.number().int().positive().max(100000) }).strict(),
-  z.object({ kind: z.literal("product-existing-confirm"), product: name, delta: z.number().int().positive().max(100000) }).strict(),
+  z.object({ kind: z.literal("product-create-price"), product: name, unit: name, openingStock: measuredAmount }).strict(),
+  z.object({ kind: z.literal("product-create-confirm"), product: name, unit: name, openingStock: measuredAmount, sellingPrice: z.number().finite().positive().max(999999999) }).strict(),
+  z.object({ kind: z.literal("product-create-unit"), product: name, openingStock: measuredQuantity }).strict(),
+  z.object({ kind: z.literal("product-action-choice"), product: name, unit: name, quantity: measuredQuantity }).strict(),
+  z.object({ kind: z.literal("product-existing-confirm"), product: name, delta: measuredQuantity }).strict(),
   z.object({ kind: z.literal("khata-create-confirm"), customer: name, amountRupees: z.number().int().positive() }).strict(),
   z.object({ kind: z.literal("khata-currency-confirm"), customer: name, amountRupees: z.number().int().positive(), type: z.enum(["gave", "received"]) }).strict(),
   z.object({ kind: z.literal("customer-name") }).strict(),
@@ -71,6 +78,7 @@ export const reasoningResultSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("clarify"), question: z.string().trim().min(1).max(400), pending: pendingClarificationSchema.optional(),
     intent: z.enum([
       "inventory.adjust", "inventory.getStock", "inventory.checkList", "inventory.getReorderSuggestions", "product.create",
+      "sales.prepareSpoken",
       "orders.getOpen", "orders.getStatus", "orders.createDraft", "orders.transition", "orders.transitionConfirmed",
       "customer.create", "khata.getBalance", "khata.addEntry", "khata.openAccount", "supplier.list", "supplier.create",
       "sales.getDailySummary", "sales.recordConfirmedBasket",

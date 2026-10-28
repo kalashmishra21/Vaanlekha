@@ -45,11 +45,13 @@ export async function POST(request: Request) {
 
   switch (action.kind) {
     case "product.create": {
-      const { data, error } = await client.rpc("create_product_idempotent", {
+      const measured = !Number.isInteger(action.openingStock);
+      const { data, error } = await client.rpc(measured ? "create_product_decimal_idempotent" : "create_product_idempotent", {
         p_shop_id: shop.id, p_request_key: requestKey, p_name: action.name, p_sku: action.sku || null, p_unit: action.unit,
         p_selling_price: action.sellingPrice, p_cost_price: action.costPrice ?? null,
         p_threshold: action.threshold, p_opening_stock: action.openingStock,
       });
+      if (error?.code === "PGRST202" && measured) return Response.json({ error: "Measured stock needs the database migration before it can be saved. No product was created." }, { status: 503 });
       if (error) return databaseError(error);
       return Response.json({ ok: true, id: data });
     }
@@ -64,9 +66,14 @@ export async function POST(request: Request) {
       return Response.json({ ok: true, id: data.id });
     }
     case "product.adjust": {
-      const { data, error } = await client.rpc("adjust_stock_idempotent", {
+      const args = {
         p_shop_id: shop.id, p_request_key: requestKey, p_product_id: action.id, p_delta: action.delta, p_note: action.note || null,
-      });
+      };
+      let { data, error } = await client.rpc("adjust_stock_decimal_idempotent", args);
+      if (error?.code === "PGRST202" && Number.isInteger(action.delta)) {
+        ({ data, error } = await client.rpc("adjust_stock_idempotent", args));
+      }
+      if (error?.code === "PGRST202") return Response.json({ error: "Measured stock needs the database migration before it can be saved. No stock changed." }, { status: 503 });
       if (error) return databaseError(error);
       return Response.json({ ok: true, currentStock: data });
     }
@@ -102,9 +109,11 @@ export async function POST(request: Request) {
       if (new Set(action.items.map((item) => item.productId)).size !== action.items.length) {
         return Response.json({ error: "Select each product only once." }, { status: 422 });
       }
-      const { data: result, error } = await client.rpc("record_sale_idempotent", {
+      const measured = action.items.some((item) => !Number.isInteger(item.quantity));
+      const { data: result, error } = await client.rpc(measured ? "record_sale_decimal_idempotent" : "record_sale_idempotent", {
         p_shop_id: shop.id, p_request_key: requestKey, p_items: action.items, p_payment_method: action.paymentMethod,
       });
+      if (error?.code === "PGRST202" && measured) return Response.json({ error: "Measured sales need the database migration before they can be saved. No sale was recorded." }, { status: 503 });
       if (error) return databaseError(error);
       const saleId = z.object({ saleId: z.uuid(), total: z.number().nonnegative() }).parse(result).saleId;
       const { data: sale, error: readError } = await client.from("sales")
@@ -155,6 +164,7 @@ function databaseError(error: { code?: string; message: string }) {
     return Response.json({ error: "Check the entered values and try again." }, { status: 422 });
   }
   if (error.code === "P0001") return Response.json({ error: "Insufficient stock or product unavailable." }, { status: 409 });
+  if (error.code === "P0003") return Response.json({ error: "The product price changed. Review the sale again; nothing was recorded." }, { status: 409 });
   if (error.code === "P0002") return Response.json({ error: "A referenced product, supplier or order was not found." }, { status: 404 });
   if (error.code === "42501") return Response.json({ error: "You do not have access to this shop." }, { status: 403 });
   return Response.json({ error: "The store action could not be completed. Please try again." }, { status: 503 });

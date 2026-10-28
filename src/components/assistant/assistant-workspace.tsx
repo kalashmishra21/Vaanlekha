@@ -82,6 +82,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     switch (pending.kind) {
       case "open-account-amount": return `Opening ${pending.customer}'s khata · enter the opening amount.`;
       case "product-create-price": return `Adding ${pending.openingStock} ${pending.unit}(s) of ${pending.product} · enter its selling price in rupees.`;
+      case "product-create-confirm": return `Review ${pending.openingStock} ${pending.unit}(s) of ${pending.product} at ₹${pending.sellingPrice} each. Nothing has been saved. Reply yes or cancel.`;
       case "product-create-unit": return `Adding ${pending.openingStock} of ${pending.product} · enter its unit.`;
       case "product-action-choice": return `Is ${pending.product} a new product or existing stock?`;
       case "product-existing-confirm": return `Confirm adding ${pending.delta} to existing ${pending.product} stock.`;
@@ -100,6 +101,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     switch (pending.kind) {
       case "open-account-amount": return "e.g. 100 rupaye";
       case "product-create-price": return `Price in rupees per ${pending.unit}`;
+      case "product-create-confirm": return "Reply yes to create, or cancel";
       case "product-create-unit": return "Unit, e.g. packet";
       case "product-action-choice": return "Reply new or existing";
       case "product-existing-confirm":
@@ -206,6 +208,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   async function startConversation() {
     if (busy) return;
+    setBusy(true);
     setHistoryError("");
     try {
       const response = await fetch("/api/assistant/conversations", { method: "POST" });
@@ -214,6 +217,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       await refreshConversations(id);
       setHistoryOpen(false);
     } catch (error) { setHistoryError(error instanceof Error ? error.message : "A new conversation could not be created."); }
+    finally { setBusy(false); }
   }
 
   async function changeConversation(id: string) {

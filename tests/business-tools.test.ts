@@ -167,7 +167,10 @@ describe("business boundary", () => {
     const first = await provider.reason({ text: "50 packet of Bread add kro new inventory h ye" });
     expect(first).toMatchObject({ kind: "clarify", pending: { kind: "product-create-price", openingStock: 50 } });
     if (first.kind !== "clarify" || !first.pending) throw new Error("Expected a product-price clarification");
-    const completed = await provider.reason({ text: "₹18 per packet", pending: first.pending });
+    const confirmation = await provider.reason({ text: "₹18 per packet", pending: first.pending });
+    expect(confirmation).toMatchObject({ kind: "clarify", pending: { kind: "product-create-confirm", sellingPrice: 18 } });
+    if (confirmation.kind !== "clarify" || !confirmation.pending) throw new Error("Expected creation confirmation");
+    const completed = await provider.reason({ text: "yes", pending: confirmation.pending });
     expect(completed).toMatchObject({ kind: "tool_call", tool: { intent: "product.create" } });
     if (completed.kind !== "tool_call") throw new Error("Expected validated product creation intent");
     const fake = fakeRepository();

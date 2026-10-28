@@ -2,6 +2,7 @@ import { z } from "zod";
 import { createAIProvider } from "@/lib/ai/provider";
 import { pendingClarificationSchema, reasoningResultSchema, recentTurnSchema } from "@/lib/ai/types/tool-call";
 import { shoppingDraftSchema } from "@/lib/assistant/shopping-list";
+import { localizeClarification, localizeTrustedReply } from "@/lib/assistant/response-language";
 import { readProviderConfig } from "@/lib/env/config";
 import { describeMockTurn } from "@/features/assistant/mock-turn";
 import { getShopContext } from "@/server/data/context";
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
   const preview = describeMockTurn(reasoning);
   if (reasoning.kind === "clarify") {
     return finish({ state: "clarify", title: "One detail needed", intent: reasoning.intent ?? "assistant.clarification",
-      detail: "No store action has been taken.", reply: reasoning.question, ...(reasoning.pending ? { pending: reasoning.pending } : {}) },
+      detail: "No store action has been taken.", reply: localizeClarification(parsed.data.text, reasoning.pending, reasoning.question), ...(reasoning.pending ? { pending: reasoning.pending } : {}) },
     200, reasoning.pending ?? null, reasoning.pending ? requestKey : null);
   }
   if (reasoning.kind === "unsupported") return finish({ state: "unsupported", ...preview });
@@ -128,11 +129,12 @@ export async function POST(request: Request) {
   const result = await executeValidatedToolCall(reasoning.tool, executor);
   if ("clarification" in result) {
     return finish({ state: "clarify", title: "One detail needed", intent: reasoning.tool.intent,
-      detail: "No store action has been taken.", reply: result.clarification.question, pending: result.clarification.pending },
+      detail: "No store action has been taken.", reply: localizeClarification(parsed.data.text, result.clarification.pending, result.clarification.question), pending: result.clarification.pending },
     200, result.clarification.pending, requestKey);
   }
   const description = describeToolResult(result);
-  const shoppingList = result.ok && reasoning.tool.intent === "inventory.checkList"
+  if (result.ok) description.reply = localizeTrustedReply(parsed.data.text, result.data, description.reply);
+  const shoppingList = result.ok && (reasoning.tool.intent === "inventory.checkList" || reasoning.tool.intent === "sales.prepareSpoken")
     ? shoppingDraftSchema.parse((result.data as { draft: unknown }).draft) : undefined;
   const answer: AssistantResponse = { state: result.ok ? shoppingList ? "draft" : "confirmed" : "failed", intent: reasoning.tool.intent, ...description, shoppingList };
 

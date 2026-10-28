@@ -56,6 +56,7 @@ export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
       && has(/\b(?:draft|create|make|bana|de do)\b/u)
       && call.arguments.items.every((item) => mentions(item.product) && number(item.quantity));
     case "product.create":
+    case "sales.prepareSpoken":
     case "sales.recordConfirmedBasket":
     case "orders.transitionConfirmed": return false; // Never available through model function calls.
   }

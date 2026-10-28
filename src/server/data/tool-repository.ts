@@ -15,21 +15,23 @@ export class SupabaseBusinessRepository implements BusinessRepository {
     const { data, error } = await this.context.client.from("products")
       .select("id,name,unit,current_stock,selling_price").eq("shop_id", this.context.shop.id).is("archived_at", null);
     if (error) throw new Error("Inventory is unavailable.");
-    return z.array(z.object({ id: z.uuid(), name: z.string(), unit: z.string(), current_stock: z.number().int(), selling_price: z.coerce.number() }))
+    return z.array(z.object({ id: z.uuid(), name: z.string(), unit: z.string(), current_stock: z.coerce.number(), selling_price: z.coerce.number() }))
       .parse(data).map((row) => ({ id: row.id, name: row.name, unit: row.unit, currentStock: row.current_stock, sellingPrice: row.selling_price }));
   }
 
   async createProduct(input: { name: string; unit: string; sellingPrice: number; openingStock: number; threshold: number }, requestKey: string): Promise<ProductRecord> {
-    const { data, error } = await this.context.client.rpc("create_product_idempotent", {
+    const measured = !Number.isInteger(input.openingStock);
+    const { data, error } = await this.context.client.rpc(measured ? "create_product_decimal_idempotent" : "create_product_idempotent", {
       p_shop_id: this.context.shop.id, p_request_key: requestKey, p_name: input.name, p_sku: null, p_unit: input.unit,
       p_selling_price: input.sellingPrice, p_cost_price: null, p_threshold: input.threshold, p_opening_stock: input.openingStock,
     });
-    if (error) throw new Error(error.code === "23505" ? "A product with that name already exists." : "Product could not be created.");
+    if (error) throw new Error(error.code === "23505" ? "A product with that name already exists."
+      : error.code === "PGRST202" && measured ? "Measured stock is unavailable until the database migration is applied. No product was created." : "Product could not be created.");
     const id = z.uuid().parse(data);
     const { data: row, error: readError } = await this.context.client.from("products")
       .select("id,name,unit,current_stock,selling_price").eq("shop_id", this.context.shop.id).eq("id", id).maybeSingle();
     if (readError || !row) throw new Error("Product was submitted but its saved result could not be verified.");
-    const saved = z.object({ id: z.uuid(), name: z.string(), unit: z.string(), current_stock: z.number().int(), selling_price: z.coerce.number() }).parse(row);
+    const saved = z.object({ id: z.uuid(), name: z.string(), unit: z.string(), current_stock: z.coerce.number(), selling_price: z.coerce.number() }).parse(row);
     return { id: saved.id, name: saved.name, unit: saved.unit, currentStock: saved.current_stock, sellingPrice: saved.selling_price };
   }
 
@@ -54,11 +56,16 @@ export class SupabaseBusinessRepository implements BusinessRepository {
   }
 
   async adjustStock(productId: string, delta: number, requestKey: string): Promise<number> {
-    const { data, error } = await this.context.client.rpc("adjust_stock_idempotent", {
+    const args = {
       p_shop_id: this.context.shop.id, p_request_key: requestKey, p_product_id: productId, p_delta: delta, p_note: "Assistant request",
-    });
+    };
+    let { data, error } = await this.context.client.rpc("adjust_stock_decimal_idempotent", args);
+    if (error?.code === "PGRST202" && Number.isInteger(delta)) {
+      ({ data, error } = await this.context.client.rpc("adjust_stock_idempotent", args));
+    }
+    if (error?.code === "PGRST202") throw new Error("Measured stock is unavailable until the database migration is applied. No stock changed.");
     if (error) throw new Error(error.code === "P0001" ? "Product missing or insufficient stock." : "Stock adjustment failed.");
-    return z.number().int().parse(data);
+    return z.coerce.number().parse(data);
   }
 
   async customers(): Promise<CustomerRecord[]> {
@@ -108,11 +115,14 @@ export class SupabaseBusinessRepository implements BusinessRepository {
     return { total: sales.reduce((total, sale) => total + Math.round(sale.total_amount * 100), 0) / 100, count: sales.length };
   }
 
-  async recordSale(items: { productId: string; quantity: number }[], paymentMethod: "cash" | "upi" | "card", requestKey: string): Promise<{ saleId: string; total: number }> {
-    const { data, error } = await this.context.client.rpc("record_sale_idempotent", {
+  async recordSale(items: { productId: string; quantity: number; expectedUnitPrice?: number }[], paymentMethod: "cash" | "upi" | "card", requestKey: string): Promise<{ saleId: string; total: number }> {
+    const measured = items.some((item) => !Number.isInteger(item.quantity) || item.expectedUnitPrice !== undefined);
+    const { data, error } = await this.context.client.rpc(measured ? "record_sale_decimal_idempotent" : "record_sale_idempotent", {
       p_shop_id: this.context.shop.id, p_request_key: requestKey, p_items: items, p_payment_method: paymentMethod,
     });
-    if (error) throw new Error(error.code === "P0001" ? "Insufficient stock. No sale was recorded." : "Sale could not be recorded.");
+    if (error?.code === "PGRST202" && measured) throw new Error("Measured sales are unavailable until the database migration is applied. No sale was recorded.");
+    if (error) throw new Error(error.code === "P0001" ? "Insufficient stock. No sale was recorded."
+      : error.code === "P0003" ? "The product price changed. Review the sale again; nothing was recorded." : "Sale could not be recorded.");
     return z.object({ saleId: z.uuid(), total: z.coerce.number().nonnegative() }).parse(data);
   }
 
@@ -134,7 +144,7 @@ export class SupabaseBusinessRepository implements BusinessRepository {
     const { data, error } = await this.context.client.from("products")
       .select("name,current_stock,low_stock_threshold").eq("shop_id", this.context.shop.id).is("archived_at", null);
     if (error) throw new Error("Reorder suggestions are unavailable.");
-    return z.array(z.object({ name: z.string(), current_stock: z.number().int(), low_stock_threshold: z.number().int() })).parse(data)
+    return z.array(z.object({ name: z.string(), current_stock: z.coerce.number(), low_stock_threshold: z.coerce.number() })).parse(data)
       .filter((product) => product.current_stock <= product.low_stock_threshold)
       .map((product) => ({ product: product.name, stock: product.current_stock, threshold: product.low_stock_threshold,
         quantity: Math.max(1, product.low_stock_threshold * 2 - product.current_stock) }));

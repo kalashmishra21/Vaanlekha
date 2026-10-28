@@ -1,5 +1,6 @@
 import { pendingClarificationSchema, reasoningResultSchema, type PendingClarification, type ReasoningResult } from "../ai/types/tool-call";
 import { parseTextShoppingList } from "./parse-text-list";
+import { parseSpokenQuantity, parseSpokenSale } from "./vernacular-quantity";
 
 const hindiWords: ReadonlyArray<[RegExp, string]> = [
   [/रुपये|रुपए|रुपया|रुपयें/gu, "rupaye"], [/\brupee?s?\b|\brupae\b|\brupye\b|\bruppee?s?\b/giu, "rupaye"], [/₹/gu, "inr "],
@@ -119,6 +120,19 @@ function parseMoney(value: string): { amount: number; currency: "inr" | "other" 
   return amount === null ? null : { amount, currency };
 }
 
+function parsePendingProductPrice(text: string, pending: Extract<PendingClarification, { kind: "product-create-price" }>): number | null {
+  const normalized = normalizeMerchantText(text).toLocaleLowerCase("en-IN");
+  if (/\$|\busd\b|\bdollars?\b/u.test(normalized)) return null;
+  const canonical = (value: string) => value.replace(/आइसक्रीम|ice\s*cream/gu, "icecream");
+  const product = canonical(normalizeMerchantText(pending.product).toLocaleLowerCase("en-IN"));
+  const unit = normalizeMerchantText(pending.unit).toLocaleLowerCase("en-IN");
+  let amountText = canonical(normalized).replaceAll(product, " ");
+  amountText = amountText.replace(/₹|प्रति|\b(?:inr|rs\.?|rupees?|rupaye|rupay|per|each|ki|ka|ke|ek|one|a|an|for|hai)\b/gu, " ");
+  amountText = amountText.replaceAll(unit, " ").replace(/\b(?:packets?|pieces?|units?|bottles?|boxes?|litres?|liters?)\b/gu, " ").replace(/\s+/gu, " ").trim();
+  const amount = parseMerchantNumber(amountText);
+  return amount !== null && amount > 0 && amount <= 999999999 ? amount : null;
+}
+
 function confirmPending(pending: PendingClarification, text: string): ReasoningResult | null {
   const normalized = normalizeMerchantText(text);
   if (pending.kind === "open-account-amount") {
@@ -127,9 +141,14 @@ function confirmPending(pending: PendingClarification, text: string): ReasoningR
     return tool("khata.openAccount", { customer: pending.customer, amountRupees: money.amount });
   }
   if (pending.kind === "product-create-price") {
-    const money = parseMoney(text);
-    if (!money || money.currency === "other") return clarification(`Enter a selling price in rupees per ${pending.unit}. Nothing was created.`, pending, "product.create");
-    return tool("product.create", { name: pending.product, unit: pending.unit, sellingPrice: money.amount, openingStock: pending.openingStock, threshold: 5 });
+    const sellingPrice = parsePendingProductPrice(text, pending);
+    if (sellingPrice === null) return clarification(`Enter a selling price in rupees per ${pending.unit}. Nothing was created.`, pending, "product.create");
+    return clarification(`Create ${pending.product} with ${pending.openingStock} ${pending.unit}(s) at ₹${sellingPrice} each? Reply yes or cancel. Nothing has been saved.`,
+      { kind: "product-create-confirm", product: pending.product, unit: pending.unit, openingStock: pending.openingStock, sellingPrice }, "product.create");
+  }
+  if (pending.kind === "product-create-confirm") {
+    if (!isYes(text)) return clarification(`Create ${pending.product} with ${pending.openingStock} ${pending.unit}(s) at ₹${pending.sellingPrice} each? Reply yes or cancel. Nothing has been saved.`, pending, "product.create");
+    return tool("product.create", { name: pending.product, unit: pending.unit, sellingPrice: pending.sellingPrice, openingStock: pending.openingStock, threshold: 5 });
   }
   if (pending.kind === "product-create-unit") {
     const unit = /^(?:packets?|pieces?|units?|bottles?|boxes?|kg|litres?|liters?)$/iu.test(normalized) ? normalized.replace(/s$/iu, "") : null;
@@ -279,6 +298,7 @@ export function pendingQuestion(pending: PendingClarification): string {
   switch (pending.kind) {
     case "open-account-amount": return `How much opening udhaar should I enter for ${pending.customer}?`;
     case "product-create-price": return `What is the selling price per ${pending.unit} for ${pending.product}?`;
+    case "product-create-confirm": return `Create ${pending.product} with ${pending.openingStock} ${pending.unit}(s) at ₹${pending.sellingPrice} each? Reply yes or cancel.`;
     case "product-create-unit": return `What unit should I use for ${pending.product}?`;
     case "product-action-choice": return `Is ${pending.product} new or existing stock?`;
     case "product-existing-confirm": return `Should I add ${pending.delta} to existing ${pending.product} stock?`;
@@ -301,6 +321,16 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
   const text = normalizeMerchantText(rawText);
   if (isConversationOnlyMessage(rawText)) return { kind: "unsupported", message: "Hello! Tell me what you would like to check or change in your store." };
   if (isAmbiguousMerchantText(rawText)) return clarification("I am not sure I heard the request clearly. Please repeat the item, action and amount. Nothing was changed.");
+  const spokenSale = parseSpokenSale(rawText);
+  if (spokenSale) return tool("sales.prepareSpoken", spokenSale);
+  const spokenQuantity = parseSpokenQuantity(rawText);
+  if (spokenQuantity && !spokenQuantity.unit && /(?:तेल|oil)/iu.test(spokenQuantity.rest) && /(?:देना|दो|do|give|sell|बेच)/iu.test(spokenQuantity.rest)) {
+    return clarification("पाव तेल किस माप में चाहिए—250 ml, 250 g, या कोई और मात्रा? कृपया मात्रा, यूनिट और काम (बिक्री या स्टॉक) साफ़ बताइए। कुछ भी सेव नहीं हुआ।");
+  }
+  if (spokenQuantity?.unit && /\b(?:add|jodo|daal|restock)\b/iu.test(text)) {
+    const product = spokenQuantity.rest.replace(/\s+(?:(?:add|jodo|daal|restock)(?:\s+(?:karo|kro|kar do))?|(?:karo|kro|kar do))\s*$/iu, "").trim();
+    if (product && product !== spokenQuantity.rest) return tool("inventory.adjust", { product: titleName(product), delta: spokenQuantity.quantity, unit: spokenQuantity.unit });
+  }
   const pending = /^(?:customer add(?: karo)?|add customer)$/iu.test(text)
     ? clarification("What is the customer's name? Nothing has been added yet.", { kind: "customer-name" }, "customer.create") : null;
   if (pending) return pending;
@@ -447,12 +477,14 @@ export function shouldContinuePending(rawPending: unknown, rawText: string): boo
   if (isAmbiguousMerchantText(rawText)) return false;
   const text = normalizeMerchantText(rawText).toLocaleLowerCase("en-IN");
   if (isClarificationCancel(rawText)) return true;
+  if (parsed.data.kind === "product-create-price") return parsePendingProductPrice(rawText, parsed.data) !== null;
+  if (parsed.data.kind === "product-create-confirm") return isYes(rawText);
   if (parsed.data.kind === "khata-currency-confirm" && /^(?:haan|ha|yes|confirm)?\s*,?\s*(?:inr|rs|rupees?|rupaye)$/iu.test(text)) return true;
   if (parsed.data.kind === "open-account-amount" && !/\b(?:aaj|today|sales?|stock|inventory|udhaar|khata|order|supplier|customer|add|create|show|batao)\b/u.test(text)) return true;
   if (/(?:\baaj\b|\btoday\b|\bsales?\b|\bstock\b|\binventory\b|\budhaar\b|\bkhata\b|\border\b|\bsupplier\b|\bcustomer\b|\badd\b|\bcreate\b|\bshow\b|\bbatao\b)/u.test(text)) {
     return parsed.data.kind === "order-transition-confirm" && isYes(rawText);
   }
-  if (["product-create-price", "open-account-amount", "khata-currency-confirm"].includes(parsed.data.kind)) {
+  if (["open-account-amount", "khata-currency-confirm"].includes(parsed.data.kind)) {
     return parseMoney(rawText) !== null || isYes(rawText);
   }
   if (["product-existing-confirm", "khata-create-confirm", "order-transition-confirm"].includes(parsed.data.kind)) return isYes(rawText);
