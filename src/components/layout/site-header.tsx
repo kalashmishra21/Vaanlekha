@@ -9,11 +9,13 @@ export function SiteHeader() {
     <header className={styles.header}>
       <div className={styles.content}>
         <BrandLockup />
-        <nav className={styles.nav} aria-label="Landing navigation">
-          <a href="#story">How it works</a>
-          <a href="#voice-demo">Voice demo</a>
-        </nav>
-        <div className={styles.actions}><LandingThemeToggle /><Link className={styles.cta} href="/signin">Explore the Studio <ArrowUpRight size={16} strokeWidth={1.8} aria-hidden="true" /></Link></div>
+        <div className={styles.cluster}>
+          <nav className={styles.nav} aria-label="Landing navigation">
+            <a href="#story">How it works</a>
+            <a href="#voice-demo">Voice demo</a>
+          </nav>
+          <div className={styles.actions}><LandingThemeToggle /><Link className={styles.cta} href="/signin">Explore the Studio <ArrowUpRight size={16} strokeWidth={1.8} aria-hidden="true" /></Link></div>
+        </div>
       </div>
     </header>
   );

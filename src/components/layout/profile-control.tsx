@@ -2,16 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronDown, CircleUserRound, LogOut, Monitor, Moon, Sun, X } from "lucide-react";
+import { ChevronDown, CircleUserRound, LogOut, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
-import { appearanceEvent, applyAppearance, readAppearance, saveAppearance, type Appearance } from "@/lib/appearance";
 
 type Profile = { displayName: string; email: string; shop: { id: string; name: string; currency: string; demo: boolean } | null };
 
 export function ProfileControl() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [appearance, setAppearance] = useState<Appearance>("system");
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState<"displayName" | "shopName" | null>(null);
@@ -36,14 +34,8 @@ export function ProfileControl() {
   }, []);
 
   useEffect(() => {
-    const syncAppearance = () => setAppearance(readAppearance());
-    const frame = requestAnimationFrame(() => { syncAppearance(); void loadProfile(); });
-    const media = matchMedia("(prefers-color-scheme: dark)");
-    const sync = () => { if (readAppearance() === "system") applyAppearance("system"); };
-    media.addEventListener("change", sync);
-    window.addEventListener(appearanceEvent, syncAppearance);
-    window.addEventListener("storage", syncAppearance);
-    return () => { cancelAnimationFrame(frame); media.removeEventListener("change", sync); window.removeEventListener(appearanceEvent, syncAppearance); window.removeEventListener("storage", syncAppearance); };
+    const frame = requestAnimationFrame(() => { void loadProfile(); });
+    return () => cancelAnimationFrame(frame);
   }, [loadProfile]);
 
   useEffect(() => {
@@ -56,11 +48,6 @@ export function ProfileControl() {
     document.addEventListener("keydown", close);
     return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", close); };
   }, [open]);
-
-  function chooseAppearance(next: Appearance) {
-    saveAppearance(next);
-    setAppearance(next);
-  }
 
   function showProfile() {
     setOpen(false); setNotice(""); setError("");
@@ -106,10 +93,6 @@ export function ProfileControl() {
     {open && <div id="profile-menu" className="profile-menu">
       <div className="profile-menu-identity"><strong>{profile?.displayName || "Your account"}</strong><span>{profile?.email || (loading ? "Loading…" : "Account details unavailable")}</span></div>
       <button type="button" className="profile-menu-row" onClick={showProfile}><CircleUserRound size={18} aria-hidden="true" /> Profile</button>
-      <fieldset className="appearance-choices"><legend>Appearance</legend>
-        {([{ value: "light", label: "Light", icon: Sun }, { value: "dark", label: "Dark", icon: Moon }, { value: "system", label: "System", icon: Monitor }] as const).map(({ value, label, icon: Icon }) =>
-          <button key={value} type="button" aria-pressed={appearance === value} onClick={() => chooseAppearance(value)}><Icon size={17} aria-hidden="true" />{label}{appearance === value && <Check size={15} aria-hidden="true" />}</button>)}
-      </fieldset>
       <button type="button" className="profile-menu-row profile-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={18} aria-hidden="true" />{signingOut ? "Signing out…" : "Sign out"}</button>
       {error && <p className="profile-menu-error" role="alert">{error}</p>}
     </div>}

@@ -26,10 +26,10 @@ export function AppearanceControl({ placement }: { placement: "public" | "worksp
   }, []);
 
   return <div className={`appearance-control appearance-control-${placement}`}>
-    <button type="button" className="appearance-trigger" aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+    <button type="button" className="appearance-trigger" aria-label={`Switch to ${theme === "dark" ? "Ivory Atelier" : "Forest Studio"}`}
       onClick={() => saveAppearance(theme === "dark" ? "light" : "dark")}>
       {theme === "dark" ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}
-      <span>{theme === "dark" ? "Light" : "Dark"} mode</span>
+      <span>{theme === "dark" ? "Ivory Atelier" : "Forest Studio"}</span>
     </button>
   </div>;
 }

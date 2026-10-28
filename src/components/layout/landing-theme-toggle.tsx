@@ -20,8 +20,8 @@ export function LandingThemeToggle() {
     };
   }, []);
 
-  return <button type="button" className={styles.toggle} onClick={() => saveAppearance(document.documentElement.dataset.theme === "dark" ? "light" : "dark")}>
-    <span className={styles.toDark}><Moon size={18} aria-hidden="true" /><span className={styles.srOnly}>Switch to dark theme</span></span>
-    <span className={styles.toLight}><Sun size={18} aria-hidden="true" /><span className={styles.srOnly}>Switch to light theme</span></span>
+  return <button type="button" className={styles.toggle} aria-label="Toggle between Ivory Atelier and Forest Studio" onClick={() => saveAppearance(document.documentElement.dataset.theme === "dark" ? "light" : "dark")}>
+    <span className={styles.toDark}><Moon size={17} aria-hidden="true" /><span>Forest Studio</span></span>
+    <span className={styles.toLight}><Sun size={17} aria-hidden="true" /><span>Ivory Atelier</span></span>
   </button>;
 }
