@@ -8,5 +8,5 @@ export default async function KhataPage() {
   if (context.kind !== "ready") return <ConnectionState kind={context.kind === "signed-out" ? "unavailable" : context.kind} />;
   let data: Awaited<ReturnType<typeof getKhata>> | null = null;
   try { data = await getKhata(context); } catch { /* Render the unavailable state. */ }
-  return data ? <KhataWorkspace {...data} /> : <ConnectionState kind="unavailable" />;
+  return data ? <KhataWorkspace {...data} shopName={context.shop.name} /> : <ConnectionState kind="unavailable" />;
 }

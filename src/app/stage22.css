@@ -184,6 +184,16 @@ html[data-theme="light"] .workspace-shell .workspace-sidebar-bottom .workspace-v
 .workspace-shell :is(.assistant-send, .business-primary) { background: var(--ws-deep); color: var(--ws-deep-ink); }
 .workspace-shell :is(button, a) { transition-duration: 170ms; }
 .workspace-shell :is(button, a):active { transform: translateY(1px); }
+.workspace-shell .business-share-link {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  min-height: 39px; padding: 7px 11px; border: 1px solid var(--ws-line);
+  border-radius: 9px; background: var(--ws-elevated); color: var(--ws-ink);
+  font-size: 11px; font-weight: 750; text-decoration: none;
+}
+.workspace-shell .business-share-link:hover { border-color: var(--ws-accent); background: var(--ws-positive-bg); }
+.workspace-shell .ledger-reminder { margin-top: 18px; }
+.workspace-shell .sale-history-total { display: grid; justify-items: end; gap: 5px; }
+.workspace-shell .sale-history-total a { color: var(--ws-accent); font-size: 11px; font-weight: 750; text-underline-offset: 3px; }
 @media (max-width: 700px) {
   .workspace-shell .workspace-topbar { top: 8px; min-height: 56px; margin: 8px 10px 0; padding: 8px 12px; border-radius: 12px; backdrop-filter: blur(10px); }
   .workspace-shell .workspace-topbar .appearance-trigger { min-width: 42px; }

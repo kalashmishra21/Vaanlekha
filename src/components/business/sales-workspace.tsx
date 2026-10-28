@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { salePreviewTotal, rupees } from "@/lib/business/calculations";
 import type { Product, Sale } from "@/lib/business/schemas";
 import { useBusinessMutation } from "./use-business-mutation";
@@ -48,7 +49,7 @@ export function SalesWorkspace({ products, sales }: { products: Product[]; sales
         </form> : <p className="business-muted">Add a product with available stock before recording a sale.</p>}
         {notice && <p className="form-notice" role="status">{notice}{confirmedTotal !== null ? ` Confirmed total: ${rupees(confirmedTotal)}.` : ""}</p>}{error && <p className="form-error" role="alert">{error}</p>}
       </section>
-      <section className="business-section"><div className="section-heading"><span>TRANSACTION HISTORY / {sales.length}</span></div><div className="business-filter-row"><label className="business-filter">Payment<select value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value as typeof historyFilter)}><option value="all">All methods</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option></select></label><label className="business-filter">Date<input type="date" value={historyDate} onChange={(event) => setHistoryDate(event.target.value)} /></label></div>{visibleSales.length ? <ul className="sale-history">{visibleSales.map((sale) => <li key={sale.id}><span><strong>{new Date(sale.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</strong><small className="payment-chip">{sale.payment_method?.toUpperCase() || "PAYMENT NOT SET"}</small></span><strong>{rupees(sale.total_amount)}</strong></li>)}</ul> : <p className="business-muted">{sales.length ? "No sales match this filter." : "No sales recorded yet."}</p>}</section>
+      <section className="business-section"><div className="section-heading"><span>TRANSACTION HISTORY / {sales.length}</span></div><div className="business-filter-row"><label className="business-filter">Payment<select value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value as typeof historyFilter)}><option value="all">All methods</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option></select></label><label className="business-filter">Date<input type="date" value={historyDate} onChange={(event) => setHistoryDate(event.target.value)} /></label></div>{visibleSales.length ? <ul className="sale-history">{visibleSales.map((sale) => <li key={sale.id}><span><strong>{new Date(sale.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</strong><small className="payment-chip">{sale.payment_method?.toUpperCase() || "PAYMENT NOT SET"}</small></span><span className="sale-history-total"><strong>{rupees(sale.total_amount)}</strong><Link href={`/receipts/${sale.id}`}>View receipt</Link></span></li>)}</ul> : <p className="business-muted">{sales.length ? "No sales match this filter." : "No sales recorded yet."}</p>}</section>
     </div>
   </div>;
 }
