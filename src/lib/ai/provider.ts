@@ -28,8 +28,9 @@ export function createAIProvider(
     reason = async (input) => {
       try { return await gemini.reason(input); }
       catch (error) {
-        // A shop-level or provider rate limit must remain visible to the merchant.
-        if (error instanceof ProviderRequestError && error.status === 429) throw error;
+        // The shop's own rate limit is authoritative. A provider quota error can use the fallback.
+        if (error instanceof ProviderRequestError && error.source === "shop") throw error;
+        if (environment.AI_REASONER_TRACE === "1") console.info("Reasoner fallback", { from: "Gemini", to: "OpenRouter", cause: error instanceof ProviderRequestError ? error.status : error instanceof Error ? error.name : "unknown" });
         return openRouter.reason(input);
       }
     };

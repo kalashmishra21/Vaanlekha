@@ -78,11 +78,13 @@ export class OpenRouterReasoner {
     const recognized = await new MockAIProvider(this.today).reason({ ...input, text });
     if (recognized.kind !== "unsupported") return reasoningResultSchema.parse(recognized);
     await this.beforeNetworkRequest?.();
-    const deadline = Date.now() + (this.transport.timeoutMs ?? 20_000);
+    const deadlineSignal = AbortSignal.timeout(this.transport.timeoutMs ?? 15_000);
     const started = performance.now();
     let response: Response;
     try {
-      response = await retryProviderRequest(() => this.request(this.transport.endpoint, {
+      response = await retryProviderRequest(() => {
+        if (deadlineSignal.aborted) throw new Error("Reasoner deadline exceeded");
+        return this.request(this.transport.endpoint, {
         method: "POST",
         headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -99,21 +101,24 @@ export class OpenRouterReasoner {
         max_tokens: 400,
         stream: false,
         }),
-        signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+        signal: deadlineSignal,
         cache: "no-store",
-      }), { attempts: this.transport.retryAttempts ?? 2 });
+      }); }, { attempts: this.transport.retryAttempts ?? 2 });
     } catch {
       if (process.env.AI_REASONER_TRACE === "1") console.info("Reasoner request", { provider: this.transport.provider, status: "network-error", durationMs: Math.round(performance.now() - started) });
       throw new ProviderRequestError(this.transport.provider, 503, "1");
     }
-    if (process.env.AI_REASONER_TRACE === "1") console.info("Reasoner request", { provider: this.transport.provider, status: response.status, durationMs: Math.round(performance.now() - started) });
+    const networkMs = Math.round(performance.now() - started);
+    if (process.env.AI_REASONER_TRACE === "1") console.info("Reasoner network", { provider: this.transport.provider, status: response.status, durationMs: networkMs });
     if (!response.ok) throw new ProviderRequestError(this.transport.provider, response.status, response.headers.get("retry-after"));
+    const parseStarted = performance.now();
     const raw: unknown = await response.json();
     if (z.object({ error: z.unknown() }).safeParse(raw).success) {
       throw new Error(`${this.transport.provider} reasoning provider is temporarily unavailable.`);
     }
     const parsed = completionSchema.safeParse(raw);
     if (!parsed.success) throw new Error(`${this.transport.provider} returned an invalid completion.`);
+    if (process.env.AI_REASONER_TRACE === "1") console.info("Reasoner parse", { provider: this.transport.provider, durationMs: Math.round(performance.now() - parseStarted) });
     const calls = parsed.data.choices[0].message.tool_calls;
     if (!calls?.length) return { kind: "unsupported", message: "No safe intent was identified." };
     if (calls.length !== 1) throw new Error(`${this.transport.provider} proposed multiple actions.`);

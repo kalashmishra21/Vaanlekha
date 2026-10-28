@@ -421,6 +421,10 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
   if (/^(?:low[- ]stock items? ki reorder list bana do|reorder suggestions? batao|reorder list|low stock batao)$/iu.test(text))
     return tool("inventory.getReorderSuggestions", {});
   if (/^(?:suppliers? (?:dikhao|batao)|supplier list|show suppliers)$/iu.test(text)) return tool("supplier.list", {});
+  if (/(?:\bsuppliers?\b|सप्लायर|आपूर्तिकर्ता)/iu.test(text)
+    && /(?:\b(?:list|show|which|who|batao|dikhao)\b|कौन|सूची|दिखाओ|बताओ)/iu.test(text)
+    && !/(?:\b(?:add|create|remove|delete|order|payment)\b|जोड़|हटा|ऑर्डर|भुगतान)/iu.test(text))
+    return tool("supplier.list", {});
   if (/^(?:supplier add(?: karo| kro)?|add supplier)$/iu.test(text)) return clarification("What is the supplier's name? Nothing has been added yet.", { kind: "supplier-name" }, "supplier.create");
   const newSupplier = /^(?:new supplier\s+)?(.+?)\s+(?:supplier\s+)?add\s+(?:karo|kro)$/iu.exec(text);
   if (newSupplier && /supplier/iu.test(text)) return tool("supplier.create", { name: titleName(newSupplier[1].replace(/\bsupplier\b/iu, "")) });

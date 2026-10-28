@@ -3,6 +3,7 @@ export class ProviderRequestError extends Error {
     readonly provider: "Gnani Prisma" | "Gnani Timbre" | "OpenRouter" | "Gemini",
     readonly status: number,
     readonly retryAfter: string | null,
+    readonly source: "provider" | "shop" = "provider",
   ) {
     super(`${provider} request failed (${status}).`);
     this.name = "ProviderRequestError";

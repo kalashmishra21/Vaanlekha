@@ -35,6 +35,7 @@ const cases: Array<{ text: string; kind: "tool_call" | "clarify" | "unsupported"
   { text: "customer add karo", kind: "clarify" },
   { text: "Suppliers dikhao", kind: "tool_call", intent: "supplier.list" },
   { text: "Supplier list", kind: "tool_call", intent: "supplier.list" },
+  { text: "हमारे लिए कौन-कौन से सप्लायर दर्ज हैं, नाम बताओ?", kind: "tool_call", intent: "supplier.list" },
   { text: "New supplier Demo Wholesale add karo", kind: "tool_call", intent: "supplier.create" },
   { text: "Supplier add karo", kind: "clarify" },
   { text: "Open orders dikhao", kind: "tool_call", intent: "orders.getOpen" },

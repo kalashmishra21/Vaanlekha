@@ -48,7 +48,8 @@ export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
     case "sales.getDailySummary": return has(/\b(?:sales?|bikri)\b/u)
       && (has(/\b(?:today|aaj)\b/u) || text.includes(call.arguments.date));
     case "inventory.getReorderSuggestions": return has(/\b(?:reorder|low.stock)\b/u);
-    case "supplier.list": return has(/\b(?:suppliers?|vendors?)\b/u) && has(/\b(?:list|show|dikhao|batao)\b/u);
+    case "supplier.list": return (has(/\b(?:suppliers?|vendors?)\b/u) || has(/(?:सप्लायर|आपूर्तिकर्ता|विक्रेता)/u))
+      && (has(/\b(?:list|show|dikhao|batao|names?)\b/u) || has(/(?:सूची|दिखाओ|बताओ|नाम|कौन)/u));
     case "orders.getOpen": return has(/\borders?\b/u) && has(/\b(?:open|show|list|dikhao|batao)\b/u);
     case "orders.getStatus": return mentions(call.arguments.order) && has(/\borders?\b/u) && has(/\b(?:status|where|check|dikhao|batao)\b/u);
     case "orders.transition": return mentions(call.arguments.order) && has(/\borders?\b/u)

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { GeminiReasoner } from "../src/lib/ai/reasoners/gemini";
 import { createAIProvider } from "../src/lib/ai/provider";
 import { MockAIProvider } from "../src/lib/ai/providers/mock";
+import { ProviderRequestError } from "../src/lib/ai/provider-http";
 
 const completion = (name: string, args: unknown) => Response.json({
   choices: [{ message: { tool_calls: [{ function: { name, arguments: JSON.stringify(args) } }] } }],
@@ -50,6 +51,13 @@ describe("optional Gemini reasoner", () => {
       .resolves.toMatchObject({ kind: "tool_call", tool: { intent: "supplier.list" } });
   });
 
+  it("accepts a read-only supplier list grounded entirely in Devanagari", async () => {
+    const request: typeof fetch = async () => completion("supplier_list", {});
+    await expect(new GeminiReasoner("test-key", "gemini-3.5-flash-lite", request)
+      .reason({ text: "हमारे लिए कौन-कौन से सप्लायर दर्ज हैं, नाम बताओ?" }))
+      .resolves.toMatchObject({ kind: "tool_call", tool: { intent: "supplier.list" } });
+  });
+
   it("falls back to OpenRouter on Gemini outage and preserves the same trusted-tool schema", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => {
@@ -65,6 +73,26 @@ describe("optional Gemini reasoner", () => {
     });
     expect(requests.filter((url) => url.includes("generativelanguage"))).toHaveLength(1);
     expect(requests.at(-1)).toBe("https://openrouter.ai/api/v1/chat/completions");
+  });
+
+  it("uses OpenRouter after a Gemini provider quota response but preserves the shop rate limit", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      requests.push(url);
+      return url.includes("generativelanguage")
+        ? new Response(null, { status: 429, headers: { "Retry-After": "60" } })
+        : completion("supplier_list", {});
+    });
+    const settings = { AI_PROVIDER: "mock", AI_REASONER: "gemini", GEMINI_API_KEY: "test-gemini",
+      OPENROUTER_API_KEY: "test-router", OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free" };
+    await expect(createAIProvider(settings).reason({ text: "Could you list our vendors?" }))
+      .resolves.toMatchObject({ kind: "tool_call", tool: { intent: "supplier.list" } });
+    expect(requests).toHaveLength(2);
+    requests.length = 0;
+    const localLimit = new ProviderRequestError("Gemini", 429, "30", "shop");
+    await expect(createAIProvider(settings, async () => { throw localLimit; })
+      .reason({ text: "Could you list our vendors?" })).rejects.toBe(localLimit);
+    expect(requests).toHaveLength(0);
   });
 
   it("requires both server-side keys in Gemini mode", () => {

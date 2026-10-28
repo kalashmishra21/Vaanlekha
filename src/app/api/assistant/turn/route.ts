@@ -27,6 +27,8 @@ const requestSchema = z.object({
 }).strict();
 
 export async function POST(request: Request) {
+  const trace = process.env.AI_REASONER_TRACE === "1";
+  const started = performance.now();
   let body: unknown;
   try { body = await request.json(); } catch {
     return Response.json({ error: "Enter a valid request." }, { status: 400 });
@@ -39,6 +41,7 @@ export async function POST(request: Request) {
   const conversationId = parsed.data.conversationId;
 
   const context = await getShopContext();
+  if (trace) console.info("Assistant timing", { phase: "auth-and-shop", durationMs: Math.round(performance.now() - started) });
   if (context.kind === "signed-out") return Response.json({ error: "Sign in to use trusted store tools." }, { status: 401 });
   if (context.kind === "unavailable") return Response.json({ error: "Store data is temporarily unavailable. Nothing was changed." }, { status: 503 });
 
@@ -63,7 +66,9 @@ export async function POST(request: Request) {
   let savedRequestKey: string | null = null;
   if (conversations && conversationId) {
     try {
+      const reservationStarted = performance.now();
       const reservation = await conversations.reserve(conversationId, idempotencyKey, parsed.data.text);
+      if (trace) console.info("Assistant timing", { phase: "conversation-reserve-db", durationMs: Math.round(performance.now() - reservationStarted) });
       if (reservation.status === "completed") return Response.json({ ...reservation.result,
         messageId: await conversations.getAssistantMessageId(conversationId, turnIdempotencyKey) }, { status: reservation.result.state === "failed" ? 409 : 200 });
       if (reservation.status === "busy") return Response.json({ error: "This conversation is processing another request. Try again shortly; nothing new was changed." }, { status: 409, headers: { "Retry-After": "2" } });
@@ -81,7 +86,11 @@ export async function POST(request: Request) {
   async function finish(answer: AssistantResponse, status = 200, nextPending: PendingClarification | null = null, nextRequestKey: string | null = null): Promise<Response> {
     let messageId: string | undefined;
     if (conversations && conversationId) {
-      try { messageId = await conversations.complete(conversationId, turnIdempotencyKey, answer, nextPending, nextRequestKey); }
+      try {
+        const completionStarted = performance.now();
+        messageId = await conversations.complete(conversationId, turnIdempotencyKey, answer, nextPending, nextRequestKey);
+        if (trace) console.info("Assistant timing", { phase: "conversation-complete-db", durationMs: Math.round(performance.now() - completionStarted) });
+      }
       catch { return Response.json({ error: "The store result could not be saved to this conversation. Verify store records before retrying." }, { status: 503 }); }
     }
     return Response.json({ ...answer, ...(messageId ? { messageId } : {}) }, { status });
@@ -94,13 +103,17 @@ export async function POST(request: Request) {
   let provider;
   try { provider = createAIProvider(process.env, async () => {
     const limit = await enforceShopRateLimit(context, "openrouter_reasoner");
-    if (limit) throw new ProviderRequestError(config.AI_REASONER === "gemini" ? "Gemini" : "OpenRouter", limit.status, limit.headers.get("Retry-After"));
+    if (limit) throw new ProviderRequestError(config.AI_REASONER === "gemini" ? "Gemini" : "OpenRouter", limit.status, limit.headers.get("Retry-After"), "shop");
   }); } catch {
     return finish({ state: "failed", title: "AI provider unavailable", intent: "assistant.reason",
       detail: "The selected provider is not configured.", reply: "The selected AI provider is not configured. Nothing was changed." }, 503, pending, continuing ? savedRequestKey : null);
   }
   let reasoning;
-  try { reasoning = reasoningResultSchema.parse(await provider.reason({ text: parsed.data.text, recent: parsed.data.recent, pending })); }
+  try {
+    const reasoningStarted = performance.now();
+    reasoning = reasoningResultSchema.parse(await provider.reason({ text: parsed.data.text, recent: parsed.data.recent, pending }));
+    if (trace) console.info("Assistant timing", { phase: "reason-and-validation", durationMs: Math.round(performance.now() - reasoningStarted) });
+  }
   catch (error) {
     if (error instanceof ProviderRequestError) {
       const response = await finish({ state: "failed", title: "Reasoner unavailable", intent: "assistant.reason",
@@ -126,7 +139,9 @@ export async function POST(request: Request) {
 
   if (!repository) return Response.json({ error: "Store data is temporarily unavailable. Nothing was changed." }, { status: 503 });
   const executor = new BusinessToolExecutor(repository, requestKey);
+  const toolStarted = performance.now();
   const result = await executeValidatedToolCall(reasoning.tool, executor);
+  if (trace) console.info("Assistant timing", { phase: "trusted-tool-db", durationMs: Math.round(performance.now() - toolStarted) });
   if ("clarification" in result) {
     return finish({ state: "clarify", title: "One detail needed", intent: reasoning.tool.intent,
       detail: "No store action has been taken.", reply: localizeClarification(parsed.data.text, result.clarification.pending, result.clarification.question), pending: result.clarification.pending },

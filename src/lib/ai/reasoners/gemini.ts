@@ -8,7 +8,7 @@ export class GeminiReasoner extends OpenRouterReasoner {
     super(key, model, request, today, beforeNetworkRequest, {
       endpoint: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
       provider: "Gemini",
-      timeoutMs: 20_000,
+      timeoutMs: 12_000,
       retryAttempts: 1,
     });
   }
