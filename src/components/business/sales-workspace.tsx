@@ -3,12 +3,12 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { salePreviewTotal, rupees } from "@/lib/business/calculations";
-import type { Product, Sale } from "@/lib/business/schemas";
+import type { CustomerReview, Product, Sale } from "@/lib/business/schemas";
 import { useBusinessMutation } from "./use-business-mutation";
 
 type Line = { productId: string; quantity: number };
 
-export function SalesWorkspace({ products, sales }: { products: Product[]; sales: Sale[] }) {
+export function SalesWorkspace({ products, sales, reviews }: { products: Product[]; sales: Sale[]; reviews: CustomerReview[] }) {
   const available = products.filter((product) => product.current_stock > 0);
   const [items, setItems] = useState<Line[]>(available[0] ? [{ productId: available[0].id, quantity: 1 }] : []);
   const [payment, setPayment] = useState<"cash" | "upi" | "card">("cash");
@@ -51,5 +51,10 @@ export function SalesWorkspace({ products, sales }: { products: Product[]; sales
       </section>
       <section className="business-section"><div className="section-heading"><span>TRANSACTION HISTORY / {sales.length}</span></div><div className="business-filter-row"><label className="business-filter">Payment<select value={historyFilter} onChange={(event) => setHistoryFilter(event.target.value as typeof historyFilter)}><option value="all">All methods</option><option value="cash">Cash</option><option value="upi">UPI</option><option value="card">Card</option></select></label><label className="business-filter">Date<input type="date" value={historyDate} onChange={(event) => setHistoryDate(event.target.value)} /></label></div>{visibleSales.length ? <ul className="sale-history">{visibleSales.map((sale) => <li key={sale.id}><span><strong>{new Date(sale.created_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</strong><small className="payment-chip">{sale.payment_method?.toUpperCase() || "PAYMENT NOT SET"}</small></span><span className="sale-history-total"><strong>{rupees(sale.total_amount)}</strong><Link href={`/receipts/${sale.id}`}>View receipt</Link></span></li>)}</ul> : <p className="business-muted">{sales.length ? "No sales match this filter." : "No sales recorded yet."}</p>}</section>
     </div>
+    <section className="business-section customer-review-section"><div className="section-heading"><span>CUSTOMER FEEDBACK / {reviews.length}</span></div>
+      <p className="business-muted">Responses come from private links on saved sale receipts. The link proves a sale exists; it does not verify the respondent&apos;s identity.</p>
+      {reviews.length ? <ul className="customer-review-list">{reviews.map((review) => <li key={review.id}><div><strong>{review.customer_name || "Anonymous customer"}</strong><span>{review.rating}/5 · {new Date(review.created_at).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</span></div><p>{review.comment}</p><Link href={`/receipts/${review.sale_id}`}>View linked sale</Link></li>)}</ul>
+        : <p className="business-muted">No customer feedback has been submitted. Open a saved receipt to invite a response.</p>}
+    </section>
   </div>;
 }

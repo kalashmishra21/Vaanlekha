@@ -163,3 +163,10 @@
 .order-history-foot button:hover { background: #e8eee4; }
 .order-history-foot button:disabled { opacity: .5; }
 @media (max-width: 760px) { .order-line { grid-template-columns: repeat(2, minmax(0, 1fr)); } .order-line label:first-child { grid-column: 1 / -1; } .order-history-foot { align-items: start; flex-direction: column; } }
+.customer-review-section { margin-top: 24px; }
+.customer-review-list { display: grid; gap: 12px; padding: 0; margin: 16px 0 0; list-style: none; }
+.customer-review-list li { padding: 18px; border: 1px solid var(--ws-line); border-radius: 12px; background: var(--ws-elevated); }
+.customer-review-list li > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px; }
+.customer-review-list li span { color: var(--ws-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.customer-review-list li p { margin: 12px 0; white-space: pre-wrap; line-height: 1.55; }
+.customer-review-list li a { color: var(--ws-accent); font-size: 12px; font-weight: 700; }

@@ -55,6 +55,10 @@ export const saleSchema = z.object({
 });
 export type Sale = z.infer<typeof saleSchema>;
 
+export const customerReviewSchema = z.object({ id: uuid, sale_id: uuid, rating: z.number().int().min(1).max(5),
+  customer_name: z.string().nullable(), comment: z.string(), created_at: z.string() });
+export type CustomerReview = z.infer<typeof customerReviewSchema>;
+
 export const supplierSchema = z.object({ id: uuid, name, contact_name: z.string().nullable(), phone: z.string().nullable(), created_at: z.string() });
 export type Supplier = z.infer<typeof supplierSchema>;
 export const purchaseOrderSchema = z.object({ id: uuid, supplier_id: uuid, status: z.enum(["draft", "placed", "received", "cancelled"]), note: z.string().nullable(), created_at: z.string(), updated_at: z.string() });

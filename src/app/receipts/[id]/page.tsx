@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import { z } from "zod";
 import { PrintReceiptButton } from "@/components/business/print-receipt-button";
+import { ReviewInviteButton } from "@/components/reviews/review-invite-button";
 import { rupees } from "@/lib/business/calculations";
 import { saleSchema } from "@/lib/business/schemas";
 import { whatsAppDraft } from "@/lib/business/sharing";
@@ -49,6 +50,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
       <div className={styles.identity}><strong>{context.shop.name}</strong><span>Receipt ID: {sale.id}</span></div>
       <table className={styles.table}><thead><tr><th scope="col">Product</th><th scope="col">Quantity</th><th scope="col">Unit price</th><th scope="col">Amount</th></tr></thead><tbody>{items.map((item, index) => <tr key={`${item.product_id}-${index}`}><td>{products.get(item.product_id)?.name ?? "Product"}</td><td>{item.quantity} {products.get(item.product_id)?.unit ?? "units"}</td><td>{rupees(item.unit_price)}</td><td>{rupees(item.line_total)}</td></tr>)}</tbody></table>
       <div className={styles.total}><div><span>Payment method</span><strong>{sale.payment_method?.toUpperCase() ?? "Not recorded"}</strong></div><div><span>Sale total</span><strong>{rupees(sale.total_amount)}</strong></div></div>
+      <ReviewInviteButton saleId={sale.id} shopName={context.shop.name} />
       <p className={styles.footnote}>This receipt reflects the saved store transaction. Product names reflect current records. This is not a GST tax invoice.</p>
     </article>
   </main>;

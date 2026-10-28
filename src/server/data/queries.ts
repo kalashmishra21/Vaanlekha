@@ -1,7 +1,7 @@
 import "server-only";
 
 import { z } from "zod";
-import { productSchema, customerSchema, khataEntrySchema, movementSchema, saleSchema, supplierSchema, purchaseOrderSchema, purchaseOrderItemSchema } from "@/lib/business/schemas";
+import { productSchema, customerSchema, khataEntrySchema, movementSchema, saleSchema, customerReviewSchema, supplierSchema, purchaseOrderSchema, purchaseOrderItemSchema } from "@/lib/business/schemas";
 import { indiaDayBounds, khataBalance, todayInIndia, totalKhataOutstanding } from "@/lib/business/calculations";
 import type { ShopContext } from "./context";
 
@@ -37,11 +37,13 @@ export async function getKhata(context: ReadyContext) {
 }
 
 export async function getSales(context: ReadyContext) {
-  const [products, sales] = await Promise.all([
+  const [products, sales, reviews] = await Promise.all([
     context.client.from("products").select("id,name,sku,unit,selling_price,cost_price,current_stock,low_stock_threshold,created_at,updated_at").eq("shop_id", context.shop.id).is("archived_at", null).order("name"),
     context.client.from("sales").select("id,total_amount,payment_method,created_at").eq("shop_id", context.shop.id).order("created_at", { ascending: false }).limit(100),
+    context.client.from("customer_reviews").select("id,sale_id,rating,customer_name,comment,created_at").eq("shop_id", context.shop.id).order("created_at", { ascending: false }).limit(100),
   ]);
-  return { products: rows(productSchema, products.data, products.error), sales: rows(saleSchema, sales.data, sales.error) };
+  return { products: rows(productSchema, products.data, products.error), sales: rows(saleSchema, sales.data, sales.error),
+    reviews: rows(customerReviewSchema, reviews.data, reviews.error) };
 }
 
 export async function getOverview(context: ReadyContext) {

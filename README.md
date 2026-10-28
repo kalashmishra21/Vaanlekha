@@ -12,6 +12,8 @@ The merchant workspace also includes a supplier directory, internal purchase ord
 
 The [supplier/order migration](supabase/migrations/20261008190000_suppliers_purchase_orders.sql) adds two synthetic suppliers to named demo shops and seeds them again after reset. The separate [order item index migration](supabase/migrations/20261008190256_purchase_order_items_shop_index.sql) covers shop-scoped reads. Apply each once, in timestamp order, for a new project; the supplier/order migration is already live in the connected Supabase project. Order history shows the latest 30 orders; sales history shows the latest 100 sales.
 
+Saved receipts can issue a private, single-use customer feedback link. A customer can submit a rating and comment without creating an account; the shop owner can read the response under Sales. Links expire after 30 days, and creating a replacement invalidates the previous link. The WhatsApp button opens a message draft; it does not send or verify delivery. A sale-linked response confirms that a link was used, not the respondent's identity. Reviews remain private to the shop and are never presented as verified public testimonials. The [customer feedback migration](supabase/migrations/20261028191500_sale_linked_customer_reviews.sql) is required for this feature and is already applied in the connected Supabase project. Apply it after the earlier migrations in a new project.
+
 Requires Node.js 20.9+ and npm. Run `npm install`, then `npm run dev`. The app uses [http://localhost:3100](http://localhost:3100). Without Supabase variables, landing and mock preview work while the workspace shows a clear setup state.
 
 For real store data:
