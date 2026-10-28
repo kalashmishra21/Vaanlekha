@@ -7,7 +7,7 @@ const migrations = [
   "20261008090000_demo_shop_reset.sql", "20261008160000_assistant_open_khata.sql",
   "20261008190000_suppliers_purchase_orders.sql", "20261008190256_purchase_order_items_shop_index.sql",
   "20261010090000_mutation_idempotency_and_rate_limits.sql", "20261010100000_assistant_pending_clarifications.sql",
-  "20261010110000_order_transition_confirmation_guard.sql", "20261010180000_assistant_conversations.sql",
+  "20261010110000_order_transition_confirmation_guard.sql", "20261010182851_assistant_conversations.sql",
   "20261028170000_fractional_kirana_quantities.sql", "20261028191500_sale_linked_customer_reviews.sql",
 ];
 const owner = "11111111-1111-4111-8111-111111111111";

@@ -23,7 +23,6 @@ async function WorkspaceLayoutData({ children }: Readonly<{ children: React.Reac
   const context = await getShopContext();
   if (context.kind === "signed-out") redirect("/signin");
   const connected = context.kind === "ready";
-  const demo = connected && context.shop.name === "DukaanSaathi Demo Mart";
   const config = readProviderConfig();
   const reasonerDescription = config.AI_REASONER === "gemini"
     ? "Store data is live. Gemini reasoning is configured with OpenRouter fallback."
@@ -31,9 +30,9 @@ async function WorkspaceLayoutData({ children }: Readonly<{ children: React.Reac
       ? "Store data is live. OpenRouter reasoning is configured."
       : "Store data is live. Reasoning uses the mock provider.";
   return (
-    <WorkspaceChrome shopName={connected ? context.shop.name : "Workspace setup"} demo={demo}
+    <WorkspaceChrome shopName={connected ? context.shop.name : "Workspace setup"}
       connected={connected} providerMode={config.AI_PROVIDER} reasonerMode={config.AI_REASONER} voiceAvailable={Boolean(process.env.GNANI_API_KEY)}
-      status={demo ? "Demo shop connected" : connected ? "Store connected" : "Vaani is ready"}
+      status={connected ? "Store connected" : "Vaani is ready"}
       description={connected ? reasonerDescription : "Connect a shop to enable trusted business actions."}>
       {children}
     </WorkspaceChrome>

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { ArrowUpRight, AudioLines, PackagePlus } from "lucide-react";
 import { ConnectionState } from "@/components/business/connection-state";
-import { DemoShopReset } from "@/components/business/demo-shop-reset";
 import { rupees } from "@/lib/business/calculations";
 import { getShopContext } from "@/server/data/context";
 import { getOverview } from "@/server/data/queries";
@@ -36,6 +35,5 @@ export default async function Overview() {
         {activity.length ? <ol className="overview-activity">{activity.map((event) => <li key={`${event.kind}-${event.id}`}><Link href={event.href}><span className="overview-activity-kind">{event.kind}</span><strong>{event.label}</strong><time dateTime={event.at}>{new Date(event.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}</time></Link></li>)}</ol> : <p className="business-muted">No recent store activity. Your first stock movement, sale, ledger entry or order will appear here.</p>}
       </section>
     </div>
-    {context.shop.name === "DukaanSaathi Demo Mart" && <DemoShopReset />}
   </div>;
 }

@@ -24,7 +24,8 @@ export async function proxy(request: NextRequest) {
   });
   try {
     const { data } = await supabase.auth.getClaims();
-    if (data?.claims?.sub && publicEntry) {
+    const verified = data?.claims?.sub && publicEntry ? await supabase.auth.getUser() : null;
+    if (verified?.data.user?.email_confirmed_at && !verified.data.user.is_anonymous) {
       const redirect = NextResponse.redirect(new URL("/app", request.url));
       response.cookies.getAll().forEach((cookie) => redirect.cookies.set(cookie));
       redirect.headers.set("Cache-Control", "private, no-store");

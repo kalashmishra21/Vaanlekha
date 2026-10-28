@@ -27,21 +27,14 @@ export async function POST(request: Request) {
   const idempotencyKey = readIdempotencyKey(request);
   if (idempotentActions.has(action.kind) && !idempotencyKey) return missingIdempotencyKey();
   const requestKey = idempotencyKey ?? crypto.randomUUID();
-  if (action.kind === "shop.seed") {
+  if (action.kind === "shop.create") {
     if (context.kind !== "no-shop") return Response.json({ error: "A shop is already connected." }, { status: 409 });
-    const { data, error } = await context.client.rpc("bootstrap_demo_shop");
+    const { data, error } = await context.client.from("shops").insert({ owner_id: context.userId, name: action.name }).select("id").single();
     if (error) return databaseError(error);
-    return Response.json({ ok: true, shopId: data });
+    return Response.json({ ok: true, shopId: data.id });
   }
-  if (context.kind !== "ready") return Response.json({ error: "Create your demo shop first." }, { status: 409 });
+  if (context.kind !== "ready") return Response.json({ error: "Create your shop first." }, { status: 409 });
   const { client, shop } = context;
-
-  if (action.kind === "shop.reset") {
-    if (shop.name !== "DukaanSaathi Demo Mart") return Response.json({ error: "Only the demo shop can be reset." }, { status: 403 });
-    const { data, error } = await client.rpc("reset_demo_shop");
-    if (error) return databaseError(error);
-    return Response.json({ ok: true, shopId: data });
-  }
 
   switch (action.kind) {
     case "product.create": {

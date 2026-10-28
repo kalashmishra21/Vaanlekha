@@ -9,8 +9,7 @@ export const measuredAmount = z.number().finite().min(0).max(100000).refine((val
 export const measuredQuantity = measuredAmount.positive();
 
 export const businessActionSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("shop.seed") }).strict(),
-  z.object({ kind: z.literal("shop.reset") }).strict(),
+  z.object({ kind: z.literal("shop.create"), name: z.string().trim().min(2).max(120) }).strict(),
   z.object({ kind: z.literal("product.create"), name, sku: z.string().trim().max(60).optional(), unit: name, sellingPrice: money, costPrice: money.optional(), threshold: z.number().int().min(0).max(100000), openingStock: measuredAmount }).strict(),
   z.object({ kind: z.literal("product.edit"), id: uuid, name, sku: z.string().trim().max(60).optional(), unit: name, sellingPrice: money, costPrice: money.nullable(), threshold: z.number().int().min(0).max(100000) }).strict(),
   z.object({ kind: z.literal("product.adjust"), id: uuid, delta: z.number().finite().min(-100000).max(100000).refine((n) => n !== 0 && hasDecimalPlaces(n, 3), "Use at most three decimal places"), note: note.optional() }).strict(),

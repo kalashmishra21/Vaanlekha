@@ -15,9 +15,9 @@ export const getShopContext = cache(async function getShopContext(): Promise<Sho
   const client = await createSupabaseServerClient();
   if (!client) return { kind: "setup" };
   try {
-    const { data: claims, error: authError } = await client.auth.getClaims();
-    if (authError || !claims?.claims?.sub) return { kind: "signed-out" };
-    const userId = claims.claims.sub;
+    const { data: account, error: authError } = await client.auth.getUser();
+    if (authError || !account.user?.id || !account.user.email_confirmed_at || account.user.is_anonymous) return { kind: "signed-out" };
+    const userId = account.user.id;
     const { data: shop, error } = await client.from("shops")
       .select("id,name").eq("owner_id", userId).order("created_at").limit(1).maybeSingle();
     if (error) return { kind: "unavailable" };

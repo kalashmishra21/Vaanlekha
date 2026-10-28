@@ -2,20 +2,25 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import { ChevronDown, CircleUserRound, LogOut, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
-type Profile = { displayName: string; email: string; shop: { id: string; name: string; currency: string; demo: boolean } | null };
+type Profile = { displayName: string; email: string; shop: { id: string; name: string; currency: string; phone: string | null; logoUrl: string | null } | null };
+type SaveField = "displayName" | "shopName" | "phone" | "logo" | "email";
 
 export function ProfileControl() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState<"displayName" | "shopName" | null>(null);
+  const [saving, setSaving] = useState<SaveField | null>(null);
   const [signingOut, setSigningOut] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [shopName, setShopName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -29,6 +34,7 @@ export function ProfileControl() {
       if (!response.ok) throw new Error("Account details could not load. Please try again.");
       const data = await response.json() as Profile;
       setProfile(data); setDisplayName(data.displayName); setShopName(data.shop?.name || "");
+      setPhone(data.shop?.phone || ""); setNewEmail(data.email); setLogoFile(null);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Account details could not load."); }
     finally { setLoading(false); }
   }, []);
@@ -55,22 +61,53 @@ export function ProfileControl() {
     void loadProfile();
   }
 
-  async function save(field: "displayName" | "shopName") {
-    const value = (field === "displayName" ? displayName : shopName).trim();
-    if (value.length < 2 || value.length > (field === "displayName" ? 80 : 120)) {
-      setError(`Use 2–${field === "displayName" ? 80 : 120} characters.`); return;
+  async function save(field: "displayName" | "shopName" | "phone") {
+    const value = (field === "displayName" ? displayName : field === "shopName" ? shopName : phone).trim();
+    if (field === "phone" ? Boolean(value && !/^[+0-9()\s-]{6,20}$/.test(value)) : value.length < 2 || value.length > (field === "displayName" ? 80 : 120)) {
+      setError(field === "phone" ? "Enter a valid phone number or leave it blank." : `Use 2–${field === "displayName" ? 80 : 120} characters.`); return;
     }
     setSaving(field); setError(""); setNotice("");
     try {
-      const response = await fetch("/api/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field, value }) });
-      const result = await response.json() as { ok?: boolean; value?: string; error?: string };
+      const response = await fetch("/api/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field, value: field === "phone" ? value || null : value }) });
+      const result = await response.json() as { ok?: boolean; value?: string | null; error?: string };
       if (!response.ok || !result.ok) throw new Error(result.error || "The change could not be saved.");
       setProfile((current) => current ? field === "displayName"
         ? { ...current, displayName: result.value || value }
-        : { ...current, shop: current.shop ? { ...current.shop, name: result.value || value } : null } : current);
-      setNotice(field === "displayName" ? "Your name was saved." : "Your shop name was saved.");
+        : { ...current, shop: current.shop ? field === "phone" ? { ...current.shop, phone: result.value ?? null } : { ...current.shop, name: result.value || value } : null } : current);
+      setNotice(field === "displayName" ? "Your name was saved." : field === "phone" ? "Shop phone was saved." : "Your shop name was saved.");
       router.refresh();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "The change could not be saved."); }
+    finally { setSaving(null); }
+  }
+
+  async function uploadLogo() {
+    if (!logoFile) return;
+    if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(logoFile.type) || logoFile.size > 2 * 1024 * 1024) {
+      setError("Choose a JPEG, PNG or WebP image under 2 MB."); return;
+    }
+    setSaving("logo"); setError(""); setNotice("");
+    try {
+      const form = new FormData(); form.set("image", logoFile);
+      const response = await fetch("/api/profile/logo", { method: "POST", body: form });
+      const result = await response.json() as { ok?: boolean; logoUrl?: string | null; error?: string };
+      if (!response.ok || !result.ok) throw new Error(result.error || "Image could not be saved.");
+      setProfile((current) => current?.shop ? { ...current, shop: { ...current.shop, logoUrl: result.logoUrl || null } } : current);
+      setLogoFile(null); setNotice("Shop image was saved.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Image could not be saved."); }
+    finally { setSaving(null); }
+  }
+
+  async function changeEmail() {
+    const email = newEmail.trim().toLowerCase();
+    if (!profile || !email || email === profile.email) return;
+    const client = createSupabaseBrowserClient();
+    if (!client) { setError("Email change is unavailable."); return; }
+    setSaving("email"); setError(""); setNotice("");
+    try {
+      const { error: authError } = await client.auth.updateUser({ email }, { emailRedirectTo: `${window.location.origin}/auth/callback` });
+      if (authError) throw authError;
+      setNotice("Verification links have been requested. Your current email stays active until Supabase completes the secure change.");
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Email change could not be requested."); }
     finally { setSaving(null); }
   }
 
@@ -100,8 +137,8 @@ export function ProfileControl() {
       <div className="profile-dialog-head"><div><span className="profile-dialog-kicker">YOUR ACCOUNT</span><h2 id="profile-title">Profile &amp; shop</h2></div><button type="button" className="profile-dialog-close" aria-label="Close profile" onClick={() => dialog.current?.close()}><X size={20} aria-hidden="true" /></button></div>
       {loading && <p role="status">Loading account details…</p>}
       {profile && <div className="profile-dialog-content">
-        <div className="profile-dialog-section"><h3>Account</h3><label htmlFor="profile-name">Full name</label><div className="profile-edit-row"><input id="profile-name" value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><button type="button" disabled={Boolean(saving) || displayName.trim() === profile.displayName} onClick={() => void save("displayName")}>{saving === "displayName" ? "Saving…" : "Save name"}</button></div><label htmlFor="profile-email">Email address</label><input id="profile-email" value={profile.email} readOnly aria-describedby="profile-email-help" /><small id="profile-email-help">Email changes are managed through your authentication provider.</small></div>
-        <div className="profile-dialog-section"><h3>Shop</h3>{profile.shop ? <><label htmlFor="profile-shop-name">Shop name</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} readOnly={profile.shop.demo} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={profile.shop.demo || Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{saving === "shopName" ? "Saving…" : "Save shop"}</button></div><p>{profile.shop.demo ? "Demo shop name is fixed so reset and reseed stay reliable." : "Only you can edit this shop."} Currency: {profile.shop.currency}.</p></> : <p>Create a demo shop from the workspace to get started.</p>}</div>
+        <div className="profile-dialog-section"><h3>Account</h3><label htmlFor="profile-name">Full name</label><div className="profile-edit-row"><input id="profile-name" value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><button type="button" disabled={Boolean(saving) || displayName.trim() === profile.displayName} onClick={() => void save("displayName")}>{saving === "displayName" ? "Saving…" : "Save name"}</button></div><label htmlFor="profile-email">Email address</label><div className="profile-edit-row"><input id="profile-email" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} aria-describedby="profile-email-help" /><button type="button" disabled={Boolean(saving) || newEmail.trim().toLowerCase() === profile.email} onClick={() => void changeEmail()}>{saving === "email" ? "Sending…" : "Change email"}</button></div><small id="profile-email-help">Current email: {profile.email}. Supabase verifies the change before it takes effect.</small></div>
+        <div className="profile-dialog-section"><h3>Shop</h3>{profile.shop ? <><div className="profile-logo-row">{profile.shop.logoUrl ? <Image src={profile.shop.logoUrl} alt="Shop image" width={72} height={72} unoptimized /> : <span className="profile-logo-placeholder" aria-hidden="true">{profile.shop.name.charAt(0)}</span>}<div><label htmlFor="profile-logo">Shop image</label><input id="profile-logo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setLogoFile(event.target.files?.[0] || null)} /><small>JPEG, PNG or WebP, up to 2 MB. Private to your shop.</small></div><button type="button" disabled={!logoFile || Boolean(saving)} onClick={() => void uploadLogo()}>{saving === "logo" ? "Uploading…" : "Upload"}</button></div><label htmlFor="profile-shop-name">Shop name</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{saving === "shopName" ? "Saving…" : "Save shop"}</button></div><label htmlFor="profile-phone">Shop phone</label><div className="profile-edit-row"><input id="profile-phone" type="tel" value={phone} maxLength={20} onChange={(event) => setPhone(event.target.value)} /><button type="button" disabled={Boolean(saving) || phone.trim() === (profile.shop.phone || "")} onClick={() => void save("phone")}>{saving === "phone" ? "Saving…" : "Save phone"}</button></div><p>Only you can edit this shop. Currency: {profile.shop.currency}.</p></> : <p>Create your shop from the workspace to get started.</p>}</div>
       </div>}
       {notice && <p className="profile-notice" role="status">{notice}</p>}
       {error && <p className="profile-error" role="alert">{error}</p>}

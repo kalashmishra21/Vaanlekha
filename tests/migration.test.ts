@@ -11,7 +11,7 @@ const orderIndexMigration = readFileSync("supabase/migrations/20261008190256_pur
 const stage13Migration = readFileSync("supabase/migrations/20261010090000_mutation_idempotency_and_rate_limits.sql", "utf8");
 const clarificationMigration = readFileSync("supabase/migrations/20261010100000_assistant_pending_clarifications.sql", "utf8");
 const transitionGuardMigration = readFileSync("supabase/migrations/20261010110000_order_transition_confirmation_guard.sql", "utf8");
-const conversationMigration = readFileSync("supabase/migrations/20261010180000_assistant_conversations.sql", "utf8");
+const conversationMigration = readFileSync("supabase/migrations/20261010182851_assistant_conversations.sql", "utf8");
 const userId = "11111111-1111-4111-8111-111111111111";
 const otherId = "22222222-2222-4222-8222-222222222222";
 

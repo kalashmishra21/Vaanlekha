@@ -1,14 +1,14 @@
 import Link from "next/link";
 import type { ShopContext } from "@/server/data/context";
-import { CreateDemoShop } from "./create-demo-shop";
+import { CreateShop } from "./create-shop";
 
 export function ConnectionState({ kind }: { kind: Exclude<ShopContext["kind"], "ready" | "signed-out"> }) {
   if (kind === "no-shop") return (
     <section className="business-empty" aria-labelledby="no-shop-title">
       <p className="workspace-eyebrow">FIRST STEP / YOUR SHOP</p>
       <h1 id="no-shop-title">Make this workspace yours.</h1>
-      <p>Create a private demo shop with synthetic products, customers, ledger entries and a sale. The seed is repeatable and belongs only to your account.</p>
-      <CreateDemoShop />
+      <p>Name your shop to start private inventory, khata and sales records.</p>
+      <CreateShop />
     </section>
   );
   if (kind === "unavailable") return (

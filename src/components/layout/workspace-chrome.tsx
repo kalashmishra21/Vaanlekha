@@ -12,8 +12,8 @@ import { AppearanceControl } from "./appearance-control";
 const AssistantWorkspace = dynamic(() => import("@/components/assistant/assistant-workspace").then((module) => module.AssistantWorkspace),
   { loading: () => <div className="saathi-drawer-loading" role="status">Opening Vaani…</div> });
 
-export function WorkspaceChrome({ children, shopName, status, description, demo, connected, providerMode, reasonerMode, voiceAvailable }: {
-  children: ReactNode; shopName: string; status: string; description: string; demo: boolean;
+export function WorkspaceChrome({ children, shopName, status, description, connected, providerMode, reasonerMode, voiceAvailable }: {
+  children: ReactNode; shopName: string; status: string; description: string;
   connected: boolean; providerMode: "mock" | "gnani"; reasonerMode: "mock" | "openrouter" | "gemini"; voiceAvailable: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -76,7 +76,7 @@ export function WorkspaceChrome({ children, shopName, status, description, demo,
     <aside className="workspace-sidebar" aria-label="Workspace sidebar">{sidebar(false)}</aside>
     <div className="workspace-content">
       <header className="workspace-topbar">
-        <div className="workspace-topbar-location"><button type="button" className="mobile-menu-button" aria-label="Open navigation" onClick={() => mobile.current?.showModal()}><Menu size={21} /></button><span className="workspace-mobile-symbol"><BrandMark size={26} /></span><span className="workspace-topbar-mark" /><span className="workspace-topbar-shop">{shopName}</span><span className="workspace-topbar-separator">/</span><span className="workspace-topbar-secondary">{demo ? "DEMO STORE" : "STORE WORKSPACE"}</span></div>
+        <div className="workspace-topbar-location"><button type="button" className="mobile-menu-button" aria-label="Open navigation" onClick={() => mobile.current?.showModal()}><Menu size={21} /></button><span className="workspace-mobile-symbol"><BrandMark size={26} /></span><span className="workspace-topbar-mark" /><span className="workspace-topbar-shop">{shopName}</span><span className="workspace-topbar-separator">/</span><span className="workspace-topbar-secondary">STORE WORKSPACE</span></div>
         <div className="workspace-topbar-controls"><AppearanceControl placement="workspace" /><ProfileControl /></div>
       </header>
       <main className="workspace-main" hidden={expanded}>{children}</main>
