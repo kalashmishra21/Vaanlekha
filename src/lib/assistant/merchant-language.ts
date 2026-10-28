@@ -409,6 +409,7 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
     if (quantity) return tool("inventory.adjust", { product: canonicalProductName(addInventory[1]), delta: quantity, unit: addInventory[3].replace(/s$/iu, "") });
   }
   const stock = /^(?:what(?:'s| is) the stock of|show (?:me )?the stock of)\s+(.+?)$/iu.exec(text)
+    ?? /^how many\s+(?:packets?|pieces?|units?|bottles?|boxes?)\s+of\s+(.+?)\s+are\s+(?:there\s+)?in\s+stock$/iu.exec(text)
     ?? /^(.+?)\s+ka stock batao$/iu.exec(text);
   if (stock) return tool("inventory.getStock", { product: canonicalProductName(stock[1]) });
 

@@ -14,6 +14,7 @@ const cases: Array<{ text: string; kind: "tool_call" | "clarify" | "unsupported"
   { text: "Add 12 units of Amul Milk to inventory", kind: "tool_call", intent: "inventory.adjust" },
   { text: "What is the stock of Maggi?", kind: "tool_call", intent: "inventory.getStock" },
   { text: "Show me the stock of Maggi", kind: "tool_call", intent: "inventory.getStock" },
+  { text: "How many packets of Maggi are in stock?", kind: "tool_call", intent: "inventory.getStock" },
   { text: "मैगी का स्टॉक बताओ", kind: "tool_call", intent: "inventory.getStock" },
   { text: "Maggi ka stock batao", kind: "tool_call", intent: "inventory.getStock" },
   { text: "Sharma ji ka kitna udhaar hai?", kind: "tool_call", intent: "khata.getBalance" },

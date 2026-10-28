@@ -11,6 +11,7 @@ import "./phase11.css";
 import "./stage13.css";
 import "./stage14.css";
 import "./stage20.css";
+import "./stage22.css";
 
 const manrope = localFont({
   src: "../../node_modules/@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2",

@@ -1,0 +1,40 @@
+/* Page-local colors follow the Stage 22 palette after legacy landing imports. */
+html[data-theme="light"] body .stage12-landing {
+  --s12-page-bg: #f6f4ec; --s12-ink: #243126; --s12-muted: #506350;
+  --s12-faint: #66786a; --s12-line: #cbd6c7;
+  --s12-hero-glow: #e3ecdd; --s12-hero-panel: #eef2e9;
+  --s12-hero-panel-edge: #cad5c6; --s12-studio-bg: #edf0e8;
+  --s12-bento-bg: #fffdf6; --s12-bento-raised: #e7ece2;
+  --s12-bento-line: #cbd4c6; --s12-bento-muted: #526454;
+  --s12-button: #324a37; --s12-button-ink: #fffdf5;
+  --s12-focus: #365c40; --s12-copper: #526d4d; --s12-sage: #8ba38a;
+}
+html[data-theme="dark"] body .stage12-landing {
+  --s12-page-bg: #111b16; --s12-ink: #f3f1e7; --s12-muted: #c5d1bf;
+  --s12-faint: #adbca9; --s12-line: #465b49;
+  --s12-hero-glow: #294831; --s12-hero-panel: #1d2e22;
+  --s12-hero-panel-edge: #4a674f; --s12-studio-bg: #17251b;
+  --s12-bento-bg: #213127; --s12-bento-raised: #2b3d30;
+  --s12-bento-line: #526a55; --s12-bento-muted: #c0cfbb;
+  --s12-button: #c3d3b5; --s12-button-ink: #18251b;
+  --s12-focus: #c3d3b5; --s12-copper: #b7caa9; --s12-sage: #879f85;
+}
+html[data-theme] .stage12-landing .hero .action-primary { background: var(--s12-button); color: var(--s12-button-ink); border-radius: 10px; }
+html[data-theme] .stage12-landing .hero h1 em { color: var(--s12-copper); }
+html[data-theme] .stage12-landing .hero :is(.hero-description, .hero-honesty) { color: var(--s12-muted); }
+html[data-theme] .stage12-landing .hero .hero-identity { color: var(--s12-copper); }
+html[data-theme="light"] .stage12-landing .core-readout { background: #f3f5edeb; border-radius: 13px; }
+html[data-theme="dark"] .stage12-landing .core-readout { background: #23362ad9; border-radius: 13px; }
+html[data-theme] .stage12-landing .core-object .facet-a { fill: #aabfa5; }
+html[data-theme] .stage12-landing .core-object .facet-b { fill: #6e8e71; }
+html[data-theme] .stage12-landing .core-object .facet-c { fill: #405f48; }
+html[data-theme] .stage12-landing .core-object .facet-d { fill: #8ba58a; }
+html[data-theme] .stage12-landing .core-object .facet-e { fill: #d9e4d1; }
+html[data-theme] .stage12-landing .core-object .facet-f { fill: #698571; }
+html[data-theme] .stage12-landing .core-object .facet-g { fill: #a1b79d; }
+html[data-theme] .stage12-landing .core-object .facet-h { fill: #c1d2b8; }
+html[data-theme] .stage12-landing .core-object .facet-center { fill: #b0c3a9; }
+html[data-theme] .stage12-landing .core-object .facet-aperture-rim { stroke: #d8b77d; }
+@media (prefers-reduced-transparency: reduce) {
+  html[data-theme] .stage12-landing .core-readout { background: var(--s12-hero-panel); backdrop-filter: none; }
+}

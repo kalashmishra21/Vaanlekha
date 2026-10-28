@@ -1,5 +1,11 @@
 # DukaanSaathi AI visual direction
 
+## Stage 22 direction
+
+The current identity is Ivory Atelier / Forest Studio: soft ivory and sage in light mode, deep forest and olive in dark mode. Editorial Newsreader headlines pair with precise Manrope controls. Use green for decisions and navigation, with warm neutral reading surfaces. Floating navigation may use a restrained frosted surface and blur; forms, tables, assistant messages, and store data stay opaque for contrast. Shadows are soft and offset. The landing header keeps one Explore the Studio link and a one-click Light/Dark control. Preserve the same appearance setting across public, auth, and workspace pages.
+
+The Stage 14 direction below records the previous palette and no longer defines the current color system.
+
 ## Stage 14 brand direction
 
 The current interface uses **Ink / Ivory / Electric Blue**. Dark mode pairs ink `#0C0D12` with layered slate `#20232C`, warm ivory `#F7F6F2`, and selective electric blue `#657BFF`/`#B9C4FF`. Light mode uses warm ivory reading surfaces, dark ink typography, and deeper blue controls for contrast. Semantic design tokens in the workspace and landing govern both modes; light is art directed for clarity rather than produced by inverting dark colors. Green remains a semantic success cue. The earlier forest and copper descriptions below document prior phases and should not drive new Stage 14 UI work.

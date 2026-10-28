@@ -8,6 +8,7 @@ import { LandingStory } from "@/components/landing/landing-story";
 import { publicSiteUrl } from "@/lib/seo/site-url";
 import "./stage12-landing.css";
 import "./stage12-landing-overrides.css";
+import "./stage22-landing.css";
 
 const siteUrl = publicSiteUrl();
 const publicDescription = "A multilingual voice-first AI copilot for Indian retailers. Manage inventory, khata, sales and orders through conversation with verified store actions.";

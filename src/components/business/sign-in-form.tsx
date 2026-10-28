@@ -25,6 +25,10 @@ function fieldErrors(issues: ZodIssue[]): FieldErrors {
 
 function authMessage(reason: unknown): string {
   const message = reason instanceof Error ? reason.message : "";
+  const status = reason && typeof reason === "object" && "status" in reason ? Number(reason.status) : 0;
+  if (status >= 500 || /failed to fetch|network(?:request| error)?|ERR_NAME_NOT_RESOLVED|fetch failed/i.test(message)) {
+    return "Can't reach the sign-in service. Check your connection and try again. If it continues, the store service may be unavailable.";
+  }
   if (/invalid login credentials/i.test(message)) return "Email or password is incorrect.";
   if (/user already registered/i.test(message)) return "An account with this email already exists. Sign in instead.";
   if (/email not confirmed/i.test(message)) return "Please confirm your email before signing in.";
