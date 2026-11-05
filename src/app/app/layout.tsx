@@ -5,16 +5,20 @@ import { WorkspaceChrome } from "@/components/layout/workspace-chrome";
 import { BrandLockup } from "@/components/layout/brand";
 import { getShopContext } from "@/server/data/context";
 import { readProviderConfig } from "@/lib/env/config";
+import { cookies } from "next/headers";
+import { normalizeLocale, translate } from "@/lib/i18n";
 
 export const metadata: Metadata = { title: "Workspace | Vaanlekha", robots: { index: false, follow: false } };
 
-function WorkspaceLoadingShell() {
+async function WorkspaceLoadingShell() {
+  const locale = normalizeLocale((await cookies()).get("vaanlekha-language")?.value);
+  const t = (source: string) => translate(locale, source);
   return <div className="workspace-shell" aria-busy="true">
     <aside className="workspace-sidebar">
       <BrandLockup href="/app" className="workspace-brand" />
     </aside>
-    <div className="workspace-content"><header className="workspace-topbar"><div><span className="workspace-topbar-mark" /><span>OPENING WORKSPACE</span></div></header>
-      <main className="workspace-main"><div className="workspace-page-loading" role="status"><span className="workspace-loading-line" /><strong>Opening your store…</strong><p>Checking your session and shop records.</p></div></main>
+    <div className="workspace-content"><header className="workspace-topbar"><div><span className="workspace-topbar-mark" /><span>{t("OPENING WORKSPACE")}</span></div></header>
+      <main className="workspace-main"><div className="workspace-page-loading" role="status"><span className="workspace-loading-line" /><strong>{t("Opening your store…")}</strong><p>{t("Checking your session and shop records.")}</p></div></main>
     </div>
   </div>;
 }

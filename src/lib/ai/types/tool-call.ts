@@ -36,7 +36,7 @@ export const toolCallSchema = z.discriminatedUnion("intent", [
   z.object({ intent: z.literal("inventory.checkList"), arguments: z.object({ items: z.array(shoppingItemSchema).min(1).max(30) }).strict() }).strict(),
   z.object({ intent: z.literal("sales.prepareSpoken"), arguments: z.object({
     product: name, quantity: measuredQuantity.max(10000), unit: z.enum(["kg", "g", "litre", "ml", "packet", "piece"]),
-    unitPrice: z.number().finite().positive().max(999999999), priceUnit: z.enum(["kg", "g", "litre", "ml", "packet", "piece"]),
+    unitPrice: z.number().finite().positive().max(999999999).optional(), priceUnit: z.enum(["kg", "g", "litre", "ml", "packet", "piece"]).optional(),
   }).strict() }).strict(),
   z.object({ intent: z.literal("sales.recordConfirmedBasket"), arguments: z.object({
     items: z.array(z.object({ productId: z.uuid(), quantity: measuredQuantity.max(10000), expectedUnitPrice: z.number().finite().min(0).max(999999999).optional() }).strict()).min(1).max(30),

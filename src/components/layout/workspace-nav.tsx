@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChartNoAxesCombined, House, MessageCircleMore, Package, ReceiptText, ScrollText, Truck } from "lucide-react";
+import { useLocale } from "./locale-provider";
 
 const groups = [
   { label: "Work", items: [
@@ -22,13 +23,14 @@ const groups = [
 
 export function WorkspaceNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { t } = useLocale();
   return (
-    <nav className="workspace-nav" aria-label="Workspace navigation">
+    <nav className="workspace-nav" aria-label={t("Workspace navigation")}>
       {groups.map((group) => <div className="workspace-nav-group" key={group.label}>
-        <span className="workspace-nav-label">{group.label}</span>
+        <span className="workspace-nav-label">{t(group.label)}</span>
         {group.items.map(({ href, label, icon: Icon }) => <Link key={href} href={href} prefetch={true} onClick={onNavigate}
-          title={label} aria-label={label} aria-current={pathname === href ? "page" : undefined}>
-          <Icon size={19} strokeWidth={1.65} aria-hidden="true" /><span>{label}</span>
+          title={t(label)} aria-label={t(label)} aria-current={pathname === href ? "page" : undefined}>
+          <Icon size={19} strokeWidth={1.65} aria-hidden="true" /><span>{t(label)}</span>
         </Link>)}
       </div>)}
     </nav>

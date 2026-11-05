@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CoreFallback } from "./core-poster";
+import { useLocale } from "@/components/layout/locale-provider";
 
 export type CoreMode = "idle" | "listening" | "thinking" | "action" | "result";
 const CoreScene = dynamic(() => import("./core-scene"), { ssr: false });
@@ -17,6 +18,7 @@ const states: Record<CoreMode, { title: string; detail: string; visual: string }
 };
 
 function LiquidLens() {
+  const { t } = useLocale();
   const lens = useRef<{ destroy?: () => void } | null>(null);
   const [visible, setVisible] = useState(true);
   useEffect(() => {
@@ -40,10 +42,11 @@ function LiquidLens() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-  return <div className="glass-floating" data-out={!visible} aria-hidden="true"><div className="glass-refraction" /><div className="glass-content"><span>VAANI / INTENT LENS</span><strong>Signal becomes meaning.</strong><small>Illustrative visual</small></div></div>;
+  return <div className="glass-floating" data-out={!visible} aria-hidden="true"><div className="glass-refraction" /><div className="glass-content"><span>{t("VAANI / INTENT LENS")}</span><strong>{t("Signal becomes meaning.")}</strong><small>{t("Illustrative visual")}</small></div></div>;
 }
 
 export function VaaniCore() {
+  const { t } = useLocale();
   const [mode, setMode] = useState<CoreMode>("idle");
   const [canRender, setCanRender] = useState(false);
   const [rendered, setRendered] = useState(false);
@@ -96,19 +99,19 @@ export function VaaniCore() {
   return <div className="core-column">
     <LiquidLens />
     <div className="core-display" data-state={mode} data-renderer={rendered ? "webgl" : "fallback"}>
-      <div className="core-topline"><span>Vaani Core</span><span>VOICE / INTENT / VERIFIED PREVIEW</span></div>
+      <div className="core-topline"><span>वाणी</span><span>{t("VOICE / INTENT / VERIFIED PREVIEW")}</span></div>
       <div className="core-orbit" ref={orbit}>
         <div className="orbit orbit-outer" /><div className="orbit orbit-inner" />
-        <span className="orbit-node node-stock">Stock</span><span className="orbit-node node-khata">Khata</span><span className="orbit-node node-sales">Sales</span><div className="core-halo" />
+        <span className="orbit-node node-stock">{t("Stock")}</span><span className="orbit-node node-khata">{t("Khata")}</span><span className="orbit-node node-sales">{t("Sales")}</span><div className="core-halo" />
         <CoreFallback description={state.visual} />
         {canRender && <div className="core-canvas"><CoreScene mode={mode} onReady={onSceneReady} onContextLost={onSceneLost} /></div>}
         <div className="voice-bars" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} />)}</div>
       </div>
       <div className="core-readout">
-        <div className="demo-command"><span>SIMULATED MERCHANT COMMAND</span><strong>“Maggi ke 20 packet add karo”</strong></div>
-        <div className="core-demo-response"><div className="demo-status"><span className="readout-dot" aria-hidden="true" /><strong>{state.title}</strong></div><p>{state.detail}</p><div className="demo-chips" aria-hidden="true"><span data-chip="product">Product <b>Maggi</b></span><span data-chip="quantity">Quantity <b>20 packets</b></span><span data-chip="action">Preview <b>+20 stock</b></span></div></div>
+        <div className="demo-command"><span>{t("SIMULATED MERCHANT COMMAND")}</span><strong>“मैगी के २० पैकेट जोड़ो”</strong></div>
+        <div className="core-demo-response"><div className="demo-status"><span className="readout-dot" aria-hidden="true" /><strong>{t(state.title)}</strong></div><p>{t(state.detail)}</p><div className="demo-chips" aria-hidden="true"><span data-chip="product">{t("Product")} <b>मैगी</b></span><span data-chip="quantity">{t("Quantity")} <b>२० पैकेट</b></span><span data-chip="action">{t("Preview")} <b>+२० {t("stock")}</b></span></div></div>
       </div>
     </div>
-    <div className="core-sequence" aria-label="Illustrative sequence: voice, understanding, validated preview, simulated result"><div className="sequence-track" aria-hidden="true">{Array.from({ length: 4 }, (_, i) => <i key={i} />)}</div><span>Voice</span><span>Understand</span><span>Preview</span><span>Illustrate</span></div>
+    <div className="core-sequence" aria-label={t("Illustrative sequence: voice, understanding, validated preview, simulated result")}><div className="sequence-track" aria-hidden="true">{Array.from({ length: 4 }, (_, i) => <i key={i} />)}</div><span>{t("Voice")}</span><span>{t("Understand")}</span><span>{t("Preview")}</span><span>{t("Illustrate")}</span></div>
   </div>;
 }

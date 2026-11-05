@@ -44,6 +44,7 @@
 .nav a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 13px; border-radius: 999px; color: var(--header-ink); font-size: 12px; font-weight: 650; white-space: nowrap; }
 .nav a:hover { background: var(--header-hover); }
 .actions { display: flex; align-items: center; gap: 3px; }
+.actions > :global(.language-control) { margin-right: 2px; }
 .header .actions .cta { display: inline-flex; align-items: center; justify-content: center; gap: 12px; min-height: 40px; padding: 0 17px; border-radius: 999px; background: var(--header-accent); color: var(--header-button-ink); font-size: 12px; font-weight: 750; white-space: nowrap; }
 .cta:hover { filter: brightness(1.1); }
 .toggle { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0 12px; flex-shrink: 0; border: 0; border-radius: 999px; background: transparent; color: var(--header-ink); font: inherit; font-size: 11px; font-weight: 650; white-space: nowrap; cursor: pointer; }

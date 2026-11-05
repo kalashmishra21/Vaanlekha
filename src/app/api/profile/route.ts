@@ -1,5 +1,6 @@
 import { getShopContext } from "@/server/data/context";
 import { profileUpdateSchema } from "@/lib/auth/profile-schema";
+import { normalizeLocale } from "@/lib/i18n";
 
 export async function GET() {
   const context = await getShopContext();
@@ -18,6 +19,8 @@ export async function GET() {
   return Response.json({
     displayName: profile?.display_name || account.user.user_metadata?.display_name || "",
     email: account.user.email || "",
+    preferredLanguage: account.user.user_metadata?.preferred_language === "hi" || account.user.user_metadata?.preferred_language === "en"
+      ? normalizeLocale(account.user.user_metadata.preferred_language) : null,
     shop: shop ? { id: shop.id, name: shop.name, currency: "INR", phone: shop.phone, logoUrl: signedLogo?.data?.signedUrl ?? null } : null,
   });
 }
@@ -30,6 +33,12 @@ export async function PATCH(request: Request) {
   const context = await getShopContext();
   if (context.kind === "signed-out") return Response.json({ error: "Sign in to continue." }, { status: 401 });
   if (context.kind === "setup" || context.kind === "unavailable") return Response.json({ error: "Account details are unavailable. Try again." }, { status: 503 });
+
+  if (parsed.data.field === "preferredLanguage") {
+    const { data, error } = await context.client.auth.updateUser({ data: { preferred_language: parsed.data.value } });
+    if (error || !data.user) return Response.json({ error: "Language preference could not be saved. Please try again." }, { status: 503 });
+    return Response.json({ ok: true, value: normalizeLocale(data.user.user_metadata?.preferred_language) });
+  }
 
   if (parsed.data.field === "displayName") {
     const { data, error } = await context.client.from("profiles").update({ display_name: parsed.data.value })

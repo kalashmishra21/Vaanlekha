@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { Moon, Sun } from "lucide-react";
 import { appearanceEvent, applyAppearance, readAppearance, saveAppearance } from "@/lib/appearance";
+import { useLocale } from "./locale-provider";
 
 export function AppearanceControl({ placement }: { placement: "public" | "workspace" | "auth" }) {
+  const { t } = useLocale();
   const [theme, setTheme] = useState<"light" | "dark">("light");
 
   useEffect(() => {
@@ -26,10 +28,10 @@ export function AppearanceControl({ placement }: { placement: "public" | "worksp
   }, []);
 
   return <div className={`appearance-control appearance-control-${placement}`}>
-    <button type="button" className="appearance-trigger" aria-label={`Switch to ${theme === "dark" ? "Ivory Atelier" : "Forest Studio"}`}
+    <button type="button" className="appearance-trigger" aria-label={`${t("Switch to")} ${t(theme === "dark" ? "Ivory Atelier" : "Forest Studio")}`}
       onClick={() => saveAppearance(theme === "dark" ? "light" : "dark")}>
       {theme === "dark" ? <Sun size={17} aria-hidden="true" /> : <Moon size={17} aria-hidden="true" />}
-      <span>{theme === "dark" ? "Ivory Atelier" : "Forest Studio"}</span>
+      <span>{t(theme === "dark" ? "Ivory Atelier" : "Forest Studio")}</span>
     </button>
   </div>;
 }

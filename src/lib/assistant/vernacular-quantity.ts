@@ -3,7 +3,7 @@ import { hasDecimalPlaces } from "../business/precision";
 
 export type MerchantUnit = "kg" | "g" | "litre" | "ml" | "packet" | "piece";
 export type SpokenQuantity = { quantity: number; unit: MerchantUnit | null; rest: string };
-export type SpokenSale = { product: string; quantity: number; unit: MerchantUnit; unitPrice: number; priceUnit: MerchantUnit };
+export type SpokenSale = { product: string; quantity: number; unit: MerchantUnit; unitPrice?: number; priceUnit?: MerchantUnit };
 
 const amountWords: ReadonlyArray<[RegExp, number]> = [
   [/^(?:paune\s+do|paun[e]?\s+do|पौने\s*दो)/iu, 1.75],
@@ -88,7 +88,10 @@ export function parseSpokenSale(raw: string): SpokenSale | null {
   const amount = parseSpokenQuantity(raw);
   if (!amount?.unit) return null;
   const match = /^(.+?)\s+(\d+(?:\.\d{1,2})?|[a-z]+)\s*(?:rupaye|rupees?|rs\.?|inr|₹)\s+(.+)$/iu.exec(amount.rest);
-  if (!match) return null;
+  if (!match) {
+    const simple = /^(.+?)\s+(?:बेच\s*(?:दो|do)|बेचो|bech\s*do|sell(?:\s+it)?)$/iu.exec(amount.rest);
+    return simple?.[1]?.trim() ? { product: simple[1].trim(), quantity: amount.quantity, unit: amount.unit } : null;
+  }
   const unitPrice = /^\d/u.test(match[2]) ? Number(match[2]) : parseMerchantNumber(match[2]);
   const priceUnit = parseMerchantUnit(match[3]);
   if (unitPrice === null || unitPrice <= 0 || !hasDecimalPlaces(unitPrice, 2) || !priceUnit) return null;

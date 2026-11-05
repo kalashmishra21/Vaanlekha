@@ -8,7 +8,6 @@
 - Connected Assistant reads verified stock, khata and daily sales; a shopping-list draft showed availability and prices without creating a sale.
 - Inventory/customer search and sales empty-state filters passed.
 - Secret scan of tracked and nonignored candidate files found no local credentials. `.env.local`, tool state, dependencies and build output remain ignored.
-- The project Impeccable hook is configured in the ignored `.codex/hooks.json`. Its Windows PostToolUse and Stop commands each exit 0 when invoked from the repository root. The earlier exit 1 has no retained diagnostic trace, and it did not reproduce; the hook remains enabled.
 
 ## Design tools used
 

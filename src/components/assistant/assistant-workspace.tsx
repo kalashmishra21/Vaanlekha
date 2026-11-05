@@ -12,6 +12,7 @@ import { startVoiceRecording, type VoiceRecording } from "@/lib/ai/capture";
 import type { VoiceState } from "@/features/assistant/voice-states";
 import { VoiceStateIndicator } from "./voice-state-indicator";
 import { ShoppingListResult } from "./shopping-list-result";
+import { useLocale } from "@/components/layout/locale-provider";
 
 type AttachmentPreview = { name: string; kind: "image" | "pdf"; url: string };
 type Message = { id: number; persistedId?: string; role: "user" | "assistant"; text: string; attachment?: AttachmentPreview; result?: AssistantResponse; failed?: boolean };
@@ -40,6 +41,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   expanded?: boolean; onClose?: () => void;
 }) {
   const router = useRouter();
+  const { locale, t } = useLocale();
   const recording = useRef<VoiceRecording | null>(null);
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
@@ -68,7 +70,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   const initialLoad = useRef<Promise<void> | null>(null);
   const [inactiveDrafts, setInactiveDrafts] = useState<number[]>([]);
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
-  const [voiceLanguage, setVoiceLanguage] = useState<"hi-IN" | "en-IN">("hi-IN");
+  const [voiceLanguage, setVoiceLanguage] = useState<"hi-IN" | "en-IN">(locale === "hi" ? "hi-IN" : "en-IN");
   const [voiceNotice, setVoiceNotice] = useState("");
   const [speechUrl, setSpeechUrl] = useState("");
   const [busy, setBusy] = useState(false);
@@ -77,8 +79,34 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   const [retryable, setRetryable] = useState(false);
   const [action, setAction] = useState<AssistantResponse | null>(null);
 
+  useEffect(() => {
+    const syncVoiceLanguage = (event: Event) => {
+      const nextLocale = (event as CustomEvent<string>).detail;
+      setVoiceLanguage(nextLocale === "hi" ? "hi-IN" : "en-IN");
+    };
+    window.addEventListener("vaanlekha-language-changed", syncVoiceLanguage);
+    return () => window.removeEventListener("vaanlekha-language-changed", syncVoiceLanguage);
+  }, []);
+
   function pendingLabel() {
     if (!pending) return "";
+    if (locale === "hi") {
+      switch (pending.kind) {
+        case "open-account-amount": return `${pending.customer} के खाते में शुरुआती रकम लिखें।`;
+        case "product-create-price": return `${pending.product} के ${pending.openingStock} ${pending.unit} की बेचने की कीमत रुपये में लिखें।`;
+        case "product-create-confirm": return `${pending.product} के ${pending.openingStock} ${pending.unit}, हर एक ₹${pending.sellingPrice} पर जोड़ें? अभी कुछ सेव नहीं हुआ। हाँ या रद्द लिखें।`;
+        case "product-create-unit": return `${pending.product} के ${pending.openingStock} जोड़ने के लिए इकाई लिखें।`;
+        case "product-action-choice": return `क्या ${pending.product} नया सामान है या पहले से मौजूद?`;
+        case "product-existing-confirm": return `${pending.product} के मौजूदा स्टॉक में ${pending.delta} जोड़ने की पुष्टि करें।`;
+        case "khata-create-confirm": return `${pending.customer} के उधार खाते में ₹${pending.amountRupees} शुरुआती रकम जोड़ें?`;
+        case "khata-currency-confirm": return `${pending.customer} के ₹${pending.amountRupees} की पुष्टि करें। हिसाब रुपये में दर्ज होगा।`;
+        case "customer-name": return "ग्राहक का नाम लिखें।";
+        case "supplier-name": return "सप्लायर का नाम लिखें।";
+        case "order-supplier": return "इस ऑर्डर के लिए सेव किया हुआ सप्लायर चुनें।";
+        case "order-transition-confirm": return `${pending.orderLabel} का ऑर्डर ${pending.action} करें? अभी स्थिति ${pending.currentStatus} है।`;
+        case "order-transition-select": return "ऑर्डर को ID या सप्लायर के नाम से चुनें।";
+      }
+    }
     switch (pending.kind) {
       case "open-account-amount": return `Opening ${pending.customer}'s khata · enter the opening amount.`;
       case "product-create-price": return `Adding ${pending.openingStock} ${pending.unit}(s) of ${pending.product} · enter its selling price in rupees.`;
@@ -97,7 +125,22 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   }
 
   function pendingPlaceholder() {
-    if (!pending) return "Ask about stock, khata or a shopping list…";
+    if (!pending) return t("Ask about stock, khata or a shopping list…");
+    if (locale === "hi") {
+      switch (pending.kind) {
+        case "open-account-amount": return "जैसे: १०० रुपये";
+        case "product-create-price": return `${pending.unit} की कीमत रुपये में`;
+        case "product-create-confirm": return "जोड़ने के लिए हाँ लिखें, या रद्द करें";
+        case "product-create-unit": return "इकाई लिखें, जैसे पैकेट";
+        case "product-action-choice": return "नया या पहले से मौजूद लिखें";
+        case "product-existing-confirm": case "khata-create-confirm": case "order-transition-confirm": return "हाँ लिखें या रद्द करें";
+        case "khata-currency-confirm": return "रुपये की पुष्टि करें या रद्द करें";
+        case "customer-name": return "ग्राहक का नाम";
+        case "supplier-name": return "सप्लायर का नाम";
+        case "order-supplier": return "सेव सप्लायर का नाम";
+        case "order-transition-select": return "ऑर्डर का नंबर या सप्लायर का नाम";
+      }
+    }
     switch (pending.kind) {
       case "open-account-amount": return "e.g. 100 rupaye";
       case "product-create-price": return `Price in rupees per ${pending.unit}`;
@@ -139,7 +182,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   async function loadThread(id: string) {
     const response = await fetch(`/api/assistant/conversations?id=${encodeURIComponent(id)}`, { cache: "no-store" });
-    if (!response.ok) throw new Error("This conversation could not be loaded.");
+    if (!response.ok) throw new Error(t("This conversation could not be loaded."));
     const thread = threadSchema.parse(await response.json());
     activeThread.current = thread.id;
     setConversationId(thread.id);
@@ -157,7 +200,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   async function refreshConversations(preferred?: string) {
     const response = await fetch("/api/assistant/conversations", { cache: "no-store" });
-    if (!response.ok) throw new Error("Conversation history is unavailable. Store actions are paused.");
+    if (!response.ok) throw new Error(t("Conversation history is unavailable. Store actions are paused."));
     const list = threadListSchema.parse(await response.json()).conversations;
     setConversations(list);
     let id = preferred && list.some((item) => item.id === preferred) ? preferred : null;
@@ -168,7 +211,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     }
     if (!id) {
       const created = await fetch("/api/assistant/conversations", { method: "POST" });
-      if (!created.ok) throw new Error("Conversation could not be created. Store actions are paused.");
+      if (!created.ok) throw new Error(t("Conversation could not be created. Store actions are paused."));
       id = z.object({ id: z.uuid() }).parse(await created.json()).id;
       setConversations([{ id, title: "New conversation", updated_at: new Date().toISOString() }]);
     }
@@ -258,8 +301,8 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     const parsed = assistantResponseSchema.safeParse(raw);
     if (parsed.success) return parsed.data;
     const safeError = errorSchema.safeParse(raw);
-    throw new Error(response.status === 401 ? "Sign in again to continue." : safeError.success
-      ? safeError.data.error : "The result could not be verified. Check store records before retrying.");
+    throw new Error(t(response.status === 401 ? "Sign in again to continue." : safeError.success
+      ? safeError.data.error : "The result could not be verified. Check store records before retrying."));
   }
 
   async function showTurn(turn: AssistantResponse) {
@@ -458,59 +501,59 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   const realVoice = providerMode === "gnani";
   const realReasoning = reasonerMode !== "mock";
   return <div className="assistant-page assistant-copilot">
-    <header className="assistant-heading"><div><h1>Ask Vaani<span>.</span></h1><p>Run your store in your own words. Speak, type, or check a shopping list.</p></div><span className="assistant-mode-badge"><span /> {connected ? "STORE CONNECTED" : "PREVIEW MODE"} · {realReasoning ? reasonerMode === "gemini" ? "GEMINI + OPENROUTER FALLBACK" : "OPENROUTER + LOCAL PARSER" : "MOCK REASONING"} · {realVoice ? "GNANI VOICE" : "SAMPLE VOICE"}</span>{!expanded && <button className="assistant-drawer-close" type="button" onClick={onClose} aria-label="Close Vaani assistant"><X size={19} /></button>}</header>
-    <div className="assistant-conversation-toolbar"><button type="button" onClick={() => setHistoryOpen((value) => !value)} aria-expanded={historyOpen} aria-controls="assistant-thread-history"><History size={17} /> History <span>{conversations.length}</span></button><button type="button" onClick={() => void startConversation()} disabled={busy || !connected}><Plus size={17} /> New chat</button><span>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? "Conversation" : historyLoading ? "Loading history…" : "History unavailable"}</span></div>
-    {historyError && <p className="assistant-history-error" role="alert">{historyError}</p>}
-    {historyOpen && <div className="assistant-thread-history" id="assistant-thread-history" aria-label="Conversation history">
+    <header className="assistant-heading"><div><h1>{t("Ask Vaani")}<span>.</span></h1><p>{t("Run your store in your own words. Speak, type, or check a shopping list.")}</p></div><span className="assistant-mode-badge"><span /> {t(connected ? "STORE CONNECTED" : "PREVIEW MODE")} · {t(realReasoning ? reasonerMode === "gemini" ? "GEMINI + OPENROUTER FALLBACK" : "OPENROUTER + LOCAL PARSER" : "MOCK REASONING")} · {t(realVoice ? "GNANI VOICE" : "SAMPLE VOICE")}</span>{!expanded && <button className="assistant-drawer-close" type="button" onClick={onClose} aria-label={t("Close Vaani assistant")}><X size={19} /></button>}</header>
+    <div className="assistant-conversation-toolbar"><button type="button" onClick={() => setHistoryOpen((value) => !value)} aria-expanded={historyOpen} aria-controls="assistant-thread-history"><History size={17} /> {t("History")} <span>{conversations.length}</span></button><button type="button" onClick={() => void startConversation()} disabled={busy || !connected}><Plus size={17} /> {t("New chat")}</button><span>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? t("Conversation") : historyLoading ? t("Loading history…") : t("History unavailable")}</span></div>
+    {historyError && <p className="assistant-history-error" role="alert">{t(historyError)}</p>}
+    {historyOpen && <div className="assistant-thread-history" id="assistant-thread-history" aria-label={t("Conversation history")}>
       {conversations.map((thread) => <div className="assistant-thread-row" key={thread.id} data-active={thread.id === conversationId}>
-        {editingId === thread.id ? <form onSubmit={(event) => { event.preventDefault(); void renameConversation(thread.id); }}><input aria-label="Conversation title" value={editingTitle} maxLength={80} onChange={(event) => setEditingTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingId(null); }} autoFocus /><button type="submit">Save</button></form>
+        {editingId === thread.id ? <form onSubmit={(event) => { event.preventDefault(); void renameConversation(thread.id); }}><input aria-label={t("Conversation title")} value={editingTitle} maxLength={80} onChange={(event) => setEditingTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Escape") setEditingId(null); }} autoFocus /><button type="submit">{t("Save")}</button></form>
           : <button type="button" className="assistant-thread-select" onClick={() => void changeConversation(thread.id)} disabled={busy} aria-current={thread.id === conversationId ? "true" : undefined}>{thread.title}</button>}
-        <button type="button" aria-label={`Rename ${thread.title}`} onClick={() => { setEditingId(thread.id); setEditingTitle(thread.title); }}><Pencil size={15} /></button>
-        <button type="button" aria-label={`Delete ${thread.title}`} onClick={() => void deleteConversation(thread.id)}><Trash2 size={15} /></button>
+        <button type="button" aria-label={`${t("Rename")} ${thread.title}`} onClick={() => { setEditingId(thread.id); setEditingTitle(thread.title); }}><Pencil size={15} /></button>
+        <button type="button" aria-label={`${t("Delete")} ${thread.title}`} onClick={() => void deleteConversation(thread.id)}><Trash2 size={15} /></button>
       </div>)}
     </div>}
     <div className="assistant-grid">
-      <section className="conversation-panel" aria-label="Assistant conversation">
-        <div className="conversation-head"><div><span className="conversation-head-mark"><AudioLines size={20} strokeWidth={1.5} aria-hidden="true" /></span><div><strong>Store conversation</strong><span>{connected ? "Answers from your shop records" : "Connect a shop to act"}</span></div></div><span>{connected ? "SAVED TO YOUR SHOP" : "PREVIEW SESSION"}</span></div>
+      <section className="conversation-panel" aria-label={t("Assistant conversation")}>
+        <div className="conversation-head"><div><span className="conversation-head-mark"><AudioLines size={20} strokeWidth={1.5} aria-hidden="true" /></span><div><strong>{t("Store conversation")}</strong><span>{t(connected ? "Answers from your shop records" : "Connect a shop to act")}</span></div></div><span>{t(connected ? "SAVED TO YOUR SHOP" : "PREVIEW SESSION")}</span></div>
         <div className="conversation-feed" aria-live="polite">
-          {messages.length === 0 && <div className="assistant-welcome"><div className="assistant-welcome-mark"><AudioLines size={27} strokeWidth={1.4} aria-hidden="true" /></div><h2>What needs doing<br /><em>in your shop?</em></h2><p>{connected ? "Ask a question, update stock, or turn a list into a checked draft. Store changes appear only after they are saved." : "Connect your shop to check real stock, khata, sales and orders."}</p><button className="assistant-speak-primary" type="button" onClick={() => void toggleVoice()} disabled={busy || (realVoice && !voiceAvailable)}><Mic size={19} aria-hidden="true" /> {realVoice ? "Speak to Vaani" : "Try a sample voice request"}</button></div>}
-          {messages.map((message, index) => <article ref={index === messages.length - 1 ? latestMessage : undefined} key={message.id} className={`conversation-entry ${message.role}`} data-state={message.failed ? "failed" : message.result?.state}><span className="conversation-speaker">{message.role === "user" ? "YOU" : "VAANI"}</span><div className="conversation-body">{(message.result || message.failed) && <span className="conversation-outcome">{message.failed ? "Needs attention" : message.result?.state === "confirmed" ? "Store confirmed" : message.result?.state === "draft" ? "For review" : message.result?.state === "unsupported" ? "Try another request" : "Awaiting detail"}</span>}<p>{message.text}</p>
-            {message.result && !message.result.shoppingList && message.result.state !== "unsupported" && <div className={`conversation-result ${message.result.state}`}><span>{message.result.state === "confirmed" ? "VERIFIED STORE RESULT" : message.result.state === "draft" ? "DRAFT FOR REVIEW" : message.result.state === "clarify" ? "WAITING FOR YOU" : "STORE RESULT"}</span><strong>{message.result.title}</strong><small>{message.result.detail}</small></div>}
+          {messages.length === 0 && <div className="assistant-welcome"><div className="assistant-welcome-mark"><AudioLines size={27} strokeWidth={1.4} aria-hidden="true" /></div><h2>{t("What needs doing")}<br /><em>{t("in your shop?")}</em></h2><p>{t(connected ? "Ask a question, update stock, or turn a list into a checked draft. Store changes appear only after they are saved." : "Connect your shop to check real stock, khata, sales and orders.")}</p><button className="assistant-speak-primary" type="button" onClick={() => void toggleVoice()} disabled={busy || (realVoice && !voiceAvailable)}><Mic size={19} aria-hidden="true" /> {t(realVoice ? "Speak to Vaani" : "Try a sample voice request")}</button></div>}
+          {messages.map((message, index) => <article ref={index === messages.length - 1 ? latestMessage : undefined} key={message.id} className={`conversation-entry ${message.role}`} data-state={message.failed ? "failed" : message.result?.state}><span className="conversation-speaker">{t(message.role === "user" ? "YOU" : "VAANI")}</span><div className="conversation-body">{(message.result || message.failed) && <span className="conversation-outcome">{t(message.failed ? "Needs attention" : message.result?.state === "confirmed" ? "Store confirmed" : message.result?.state === "draft" ? "For review" : message.result?.state === "unsupported" ? "Try another request" : "Awaiting detail")}</span>}<p>{message.role === "assistant" && message.failed ? t(message.text) : message.text}</p>
+            {message.result && !message.result.shoppingList && message.result.state !== "unsupported" && <div className={`conversation-result ${message.result.state}`}><span>{t(message.result.state === "confirmed" ? "VERIFIED STORE RESULT" : message.result.state === "draft" ? "DRAFT FOR REVIEW" : message.result.state === "clarify" ? "WAITING FOR YOU" : "STORE RESULT")}</span><strong>{message.result.title}</strong><small>{message.result.detail}</small></div>}
             {message.attachment && <div className="conversation-attachment">{message.attachment.kind === "image" ? <Image unoptimized src={message.attachment.url} alt={`Preview of ${message.attachment.name}`} width={64} height={64} /> : <FileText size={26} aria-hidden="true" />}<span>{message.attachment.name}</span></div>}
             {message.result?.shoppingList && <ShoppingListResult draft={message.result.shoppingList} busy={busy} inactive={inactiveDrafts.includes(message.id)} onConfirm={(draft, payment) => void confirmSale(draft, payment, message.id)} />}
-            {message.result?.state === "clarify" && <span className="clarification-hint">Waiting for your reply · nothing has changed yet</span>}
+            {message.result?.state === "clarify" && <span className="clarification-hint">{t("Waiting for your reply · nothing has changed yet")}</span>}
           </div></article>)}
-          {messages.length === 0 && <div className="assistant-starters"><span>OR START WITH A REQUEST</span><div>{examples.map((example) => <button key={example} type="button" onClick={() => void runPrompt(example)} disabled={busy}>{example}<ArrowUp size={14} aria-hidden="true" /></button>)}</div></div>}
-          {busy && <div className="conversation-processing" role="status"><span className="processing-dot" /> {voiceState === "transcribing" ? "Transcribing with Prisma" : workingOn === "attachment" ? "Reading your list; nothing has been changed" : "Checking request and store"}</div>}
+          {messages.length === 0 && <div className="assistant-starters"><span>{t("OR START WITH A REQUEST")}</span><div>{examples.map((example) => <button key={example} type="button" onClick={() => void runPrompt(example)} disabled={busy}>{t(example)}<ArrowUp size={14} aria-hidden="true" /></button>)}</div></div>}
+          {busy && <div className="conversation-processing" role="status"><span className="processing-dot" /> {t(voiceState === "transcribing" ? "Transcribing with Prisma" : workingOn === "attachment" ? "Reading your list; nothing has been changed" : "Checking request and store")}</div>}
         </div>
         <div className="conversation-bottom">
-          {pending && <div className="pending-clarification" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{pendingLabel()} Nothing has changed yet.</span><button type="button" onClick={() => void runPrompt("cancel")} disabled={busy} aria-label="Cancel the pending store request"><X size={16} aria-hidden="true" /></button></div>}
-          {attachment && <div className="composer-attachment">{attachment.preview.kind === "image" ? <Image unoptimized src={attachment.preview.url} alt={`Preview of ${attachment.preview.name}`} width={48} height={48} /> : <FileText size={24} aria-hidden="true" />}<span><strong>{attachment.preview.name}</strong><small>Draft check only · no stock change</small></span><button type="button" onClick={() => { URL.revokeObjectURL(attachment.preview.url); setAttachment(null); }} aria-label="Remove attachment"><X size={17} aria-hidden="true" /></button></div>}
-          {retryable && lastPrompt && <button className="assistant-retry" type="button" onClick={() => void runPrompt(lastPrompt, false, true)} disabled={busy}><RotateCcw size={15} aria-hidden="true" /> Retry safe request</button>}
-          <form className="assistant-composer" onSubmit={submit}><label htmlFor="assistant-input" className="sr-only">Ask Vaani</label><input id="assistant-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={pendingPlaceholder()} maxLength={500} disabled={busy || voiceState === "listening"} />
+          {pending && <div className="pending-clarification" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{pendingLabel()} {t("Nothing has changed yet.")}</span><button type="button" onClick={() => void runPrompt("cancel")} disabled={busy} aria-label={t("Cancel the pending store request")}><X size={16} aria-hidden="true" /></button></div>}
+          {attachment && <div className="composer-attachment">{attachment.preview.kind === "image" ? <Image unoptimized src={attachment.preview.url} alt={`${t("Preview of")} ${attachment.preview.name}`} width={48} height={48} /> : <FileText size={24} aria-hidden="true" />}<span><strong>{attachment.preview.name}</strong><small>{t("Draft check only · no stock change")}</small></span><button type="button" onClick={() => { URL.revokeObjectURL(attachment.preview.url); setAttachment(null); }} aria-label={t("Remove attachment")}><X size={17} aria-hidden="true" /></button></div>}
+          {retryable && lastPrompt && <button className="assistant-retry" type="button" onClick={() => void runPrompt(lastPrompt, false, true)} disabled={busy}><RotateCcw size={15} aria-hidden="true" /> {t("Retry safe request")}</button>}
+          <form className="assistant-composer" onSubmit={submit}><label htmlFor="assistant-input" className="sr-only">{t("Ask Vaani")}</label><input id="assistant-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={pendingPlaceholder()} maxLength={500} disabled={busy || voiceState === "listening"} />
             <div className="assistant-attachment-control" ref={attachmentMenu}>
-              <button ref={attachmentTrigger} type="button" className="assistant-attach" onClick={() => setAttachmentMenuOpen((value) => !value)} disabled={busy || voiceState === "listening"} aria-label="Add attachment" aria-expanded={attachmentMenuOpen} aria-controls="assistant-attachment-menu"><Paperclip size={20} aria-hidden="true" /></button>
+              <button ref={attachmentTrigger} type="button" className="assistant-attach" onClick={() => setAttachmentMenuOpen((value) => !value)} disabled={busy || voiceState === "listening"} aria-label={t("Add attachment")} aria-expanded={attachmentMenuOpen} aria-controls="assistant-attachment-menu"><Paperclip size={20} aria-hidden="true" /></button>
               {attachmentMenuOpen && <div id="assistant-attachment-menu" className="assistant-attachment-menu">
-                <strong>Add a shopping list</strong>
-                <button type="button" onClick={() => { setAttachmentMenuOpen(false); fileInput.current?.click(); }}><ImagePlus size={18} aria-hidden="true" /> Upload photo</button>
-                <button type="button" onClick={() => { setAttachmentMenuOpen(false); pdfInput.current?.click(); }}><FileText size={18} aria-hidden="true" /> Upload PDF/document</button>
-                <button type="button" onClick={() => { setAttachmentMenuOpen(false); cameraInput.current?.click(); }}><Camera size={18} aria-hidden="true" /> Take photo</button>
-                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> Attachments &amp; privacy</summary><p>JPG, PNG, WebP or PDF, up to 5 MB. Files are not saved by Vaanlekha. Images go to the vision provider. Lists remain drafts until you confirm a sale.</p></details>
+                <strong>{t("Add a shopping list")}</strong>
+                <button type="button" onClick={() => { setAttachmentMenuOpen(false); fileInput.current?.click(); }}><ImagePlus size={18} aria-hidden="true" /> {t("Upload photo")}</button>
+                <button type="button" onClick={() => { setAttachmentMenuOpen(false); pdfInput.current?.click(); }}><FileText size={18} aria-hidden="true" /> {t("Upload PDF/document")}</button>
+                <button type="button" onClick={() => { setAttachmentMenuOpen(false); cameraInput.current?.click(); }}><Camera size={18} aria-hidden="true" /> {t("Take photo")}</button>
+                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("JPG, PNG, WebP or PDF, up to 5 MB. Files are not saved by Vaanlekha. Images go to the vision provider. Lists remain drafts until you confirm a sale.")}</p></details>
               </div>}
             </div>
-            <label className="assistant-language-control"><span className="sr-only">Voice language</span><select aria-label="Voice language" value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value as typeof voiceLanguage)} disabled={busy || voiceState === "listening"}><option value="hi-IN">हिंदी</option><option value="en-IN">EN</option></select></label>
-            <button className="assistant-mic" type="button" disabled={busy || (realVoice && !voiceAvailable)} aria-label={realVoice ? voiceState === "listening" ? "Stop recording" : "Start recording" : "Play sample voice flow"} onClick={() => void toggleVoice()}>{realVoice && voiceState === "listening" ? <Square size={17} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}<span>{realVoice ? voiceState === "listening" ? "Stop" : "Speak" : "Sample"}</span></button>
-            <button className="assistant-send" type="submit" disabled={busy || historyLoading || Boolean(historyError) || (connected && !conversationId) || voiceState === "listening" || (!input.trim() && !attachment)} aria-label="Send message"><ArrowUp size={19} aria-hidden="true" /></button></form>
+            <label className="assistant-language-control"><span className="sr-only">{t("Voice language")}</span><select aria-label={t("Voice language")} value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value as typeof voiceLanguage)} disabled={busy || voiceState === "listening"}><option value="hi-IN">हिंदी</option><option value="en-IN">English</option></select></label>
+            <button className="assistant-mic" type="button" disabled={busy || (realVoice && !voiceAvailable)} aria-label={t(realVoice ? voiceState === "listening" ? "Stop recording" : "Start recording" : "Play sample voice flow")} onClick={() => void toggleVoice()}>{realVoice && voiceState === "listening" ? <Square size={17} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}<span>{t(realVoice ? voiceState === "listening" ? "Stop" : "Speak" : "Sample")}</span></button>
+            <button className="assistant-send" type="submit" disabled={busy || historyLoading || Boolean(historyError) || (connected && !conversationId) || voiceState === "listening" || (!input.trim() && !attachment)} aria-label={t("Send message")}><ArrowUp size={19} aria-hidden="true" /></button></form>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           <input ref={pdfInput} type="file" accept="application/pdf,.pdf" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
-          {voiceNotice && <p className="composer-voice-notice" role="status">{voiceNotice}</p>}
-          {speechUrl && <audio controls src={speechUrl} aria-label="Spoken assistant reply" className="assistant-audio" />}
+          {voiceNotice && <p className="composer-voice-notice" role="status">{t(voiceNotice)}</p>}
+          {speechUrl && <audio controls src={speechUrl} aria-label={t("Spoken assistant reply")} className="assistant-audio" />}
         </div>
       </section>
-      {(action || voiceState !== "idle") && <aside className="assistant-context" aria-label="Action context"><div className="assistant-context-top"><span>TRUSTED ACTION</span><ShieldCheck size={19} strokeWidth={1.5} aria-hidden="true" /></div><VoiceStateIndicator state={voiceState} realVoice={realVoice} realReasoning={realReasoning} connected={connected} reasonerMode={reasonerMode} />
-        <div className="action-surface"><p className="action-eyebrow">LATEST RESULT</p>{action ? <><h2>{action.title}</h2><span className="action-intent">{action.intent}</span><p className="action-detail">{action.detail}</p><div className="action-warning"><ShieldCheck size={17} aria-hidden="true" /><span>{action.state === "confirmed" ? "Confirmed by your store database." : action.state === "draft" ? "Draft only. Review and confirm to record a sale." : action.state === "clarify" ? "Waiting for your answer. No change saved." : "No successful change was confirmed."}</span></div></> : <><h2>Your next action starts here.</h2><p>Vaani will show the intent, store result and any decision that needs your confirmation.</p></>}</div>
-        <p className="assistant-context-note">{realReasoning ? "AI" : "Mock AI"} interprets your request. Your shop records decide the answer. Vaani confirms a change only when it is saved.</p>
+      {(action || voiceState !== "idle") && <aside className="assistant-context" aria-label={t("Action context")}><div className="assistant-context-top"><span>{t("TRUSTED ACTION")}</span><ShieldCheck size={19} strokeWidth={1.5} aria-hidden="true" /></div><VoiceStateIndicator state={voiceState} realVoice={realVoice} realReasoning={realReasoning} connected={connected} reasonerMode={reasonerMode} />
+        <div className="action-surface"><p className="action-eyebrow">{t("LATEST RESULT")}</p>{action ? <><h2>{action.title}</h2><span className="action-intent">{t(action.intent)}</span><p className="action-detail">{action.detail}</p><div className="action-warning"><ShieldCheck size={17} aria-hidden="true" /><span>{t(action.state === "confirmed" ? "Confirmed by your store database." : action.state === "draft" ? "Draft only. Review and confirm to record a sale." : action.state === "clarify" ? "Waiting for your answer. No change saved." : "No successful change was confirmed.")}</span></div></> : <><h2>{t("Your next action starts here.")}</h2><p>{t("Vaani will show the intent, store result and any decision that needs your confirmation.")}</p></>}</div>
+        <p className="assistant-context-note">{t(realReasoning ? "AI" : "Mock AI")} {t("interprets your request. Your shop records decide the answer. Vaani confirms a change only when it is saved.")}</p>
       </aside>}
     </div>
   </div>;

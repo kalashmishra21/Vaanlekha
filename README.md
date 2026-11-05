@@ -41,6 +41,18 @@ Next.js App Router serves the interface and authenticated API routes. Supabase A
 
 Use `AI_PROVIDER=mock` and `AI_REASONER=mock` for offline development. Real provider requests may consume quota. The configured Gemini model is `gemini-3.5-flash-lite`; OpenRouter is a bounded fallback. [Reasoner measurements](docs/reasoner-benchmark.md) describe the tested model behavior.
 
+## Vercel deployment
+
+Vercel is the deployment target for this Next.js app. The free Hobby plan is limited to personal, non-commercial use, so use it only for a contest or portfolio demo. Do not use Hobby to operate a commercial Vaanlekha service. Its documented free allowances include 100 GB of fast data transfer, 1 million function invocations, 4 CPU-hours and a 10-second default function duration (configurable up to 60 seconds); usage caps can pause service until they reset. Review the [current Hobby limits](https://vercel.com/docs/plans/hobby) before each launch.
+
+1. Create a Vercel project under an individual account and connect this repository's `main` branch. Vercel detects Next.js and runs `npm run build`; deployments from the connected branch become production deployments.
+2. Set `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` and `NEXT_PUBLIC_SITE_URL` in the Vercel Production environment. `NEXT_PUBLIC_SITE_URL` is the assigned HTTPS origin without a trailing path. Configure `AI_PROVIDER` and `AI_REASONER` from the defaults and provider choices in `.env.example`; the optional selectors are `GEMINI_MODEL`, `OPENROUTER_MODEL`, `OPENROUTER_VISION_MODEL` and `OPENROUTER_VISION_FALLBACK_MODELS`. Add only the server-side keys needed for selected providers: `GEMINI_API_KEY`, `OPENROUTER_API_KEY` and/or `GNANI_API_KEY`. `AI_REASONER_TRACE=1` is optional diagnostic logging. Never add a service-role key or prefix provider secrets with `NEXT_PUBLIC_`.
+3. Apply the migrations in [`supabase/migrations`](supabase/migrations) to the existing Supabase project only if they are not already recorded there. Do not reset the database or replay applied migrations.
+4. In Supabase Auth, set the Site URL to the assigned Vercel origin and add `https://<assigned-project>.vercel.app/auth/callback` to the redirect URL allowlist. Keep email confirmation enabled. This app uses the current browser origin for confirmation and recovery callbacks.
+5. Configure a custom SMTP sender in Supabase Auth and verify signup and password recovery to an address outside the Supabase organization before inviting users. Supabase's built-in mailer only sends to organization members and is limited to two messages per hour; until custom SMTP is configured and verified, **public authentication is blocked**. Do not disable email confirmation to work around this restriction. See [Supabase Auth SMTP setup](https://supabase.com/docs/guides/auth/auth-smtp).
+
+For a rollback, promote a previously successful deployment in Vercel, or revert the deployment commit on `main` and let the connected project deploy that commit. No paid Vercel or Supabase billing is needed for this contest-demo setup; do not enable paid usage or add-ons without approval.
+
 ## Workspace screenshots
 
 These screenshots were captured in Chrome from a synthetic QA shop. Ivory Atelier and Forest Studio are the two saved appearance themes.

@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useLocale } from "@/components/layout/locale-provider";
 
 type VoiceDemoComponent = ComponentType;
 
 export function DeferredLandingVoiceDemo() {
+  const { t } = useLocale();
   const slot = useRef<HTMLDivElement>(null);
   const [Demo, setDemo] = useState<VoiceDemoComponent | null>(null);
 
@@ -30,6 +32,6 @@ export function DeferredLandingVoiceDemo() {
   }, []);
 
   return <div className="voice-demo-lazy-slot" ref={slot}>
-    {Demo ? <Demo /> : <div className="demo-console demo-console-loading" role="status">Voice samples load as you reach this section.</div>}
+    {Demo ? <Demo /> : <div className="demo-console demo-console-loading" role="status">{t("Voice samples load as you reach this section.")}</div>}
   </div>;
 }

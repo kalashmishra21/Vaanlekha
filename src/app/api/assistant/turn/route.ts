@@ -15,6 +15,7 @@ import { readIdempotencyKey, missingIdempotencyKey } from "@/server/security/ide
 import { enforceShopRateLimit } from "@/server/security/rate-limit";
 import { ProviderRequestError, retryAfterSeconds } from "@/lib/ai/provider-http";
 import { isClarificationCancel, shouldContinuePending } from "@/lib/assistant/merchant-language";
+import { parseSpokenSale } from "@/lib/assistant/vernacular-quantity";
 import type { AssistantResponse } from "@/lib/business/assistant-response";
 import type { PendingClarification } from "@/lib/ai/types/tool-call";
 
@@ -111,7 +112,10 @@ export async function POST(request: Request) {
   let reasoning;
   try {
     const reasoningStarted = performance.now();
-    reasoning = reasoningResultSchema.parse(await provider.reason({ text: parsed.data.text, recent: parsed.data.recent, pending }));
+    const spokenSale = !pending ? parseSpokenSale(parsed.data.text) : null;
+    reasoning = reasoningResultSchema.parse(spokenSale
+      ? { kind: "tool_call", tool: { intent: "sales.prepareSpoken", arguments: spokenSale } }
+      : await provider.reason({ text: parsed.data.text, recent: parsed.data.recent, pending }));
     if (trace) console.info("Assistant timing", { phase: "reason-and-validation", durationMs: Math.round(performance.now() - reasoningStarted) });
   }
   catch (error) {

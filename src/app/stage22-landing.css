@@ -20,6 +20,16 @@ html[data-theme="dark"] body .stage12-landing {
   --s12-focus: #c3d3b5; --s12-copper: #b7caa9; --s12-sage: #879f85;
 }
 html[data-theme] .stage12-landing .hero .action-primary { background: var(--s12-button); color: var(--s12-button-ink); border-radius: 10px; }
+html[data-theme] .stage12-landing .language-control { color: var(--s12-ink); }
+html[data-theme] .stage12-landing .language-control select {
+  border-color: var(--s12-line);
+  background: var(--s12-hero-panel);
+  color: var(--s12-ink);
+}
+html[data-theme] .stage12-landing .language-control select option {
+  background: var(--s12-hero-panel);
+  color: var(--s12-ink);
+}
 html[data-theme] .stage12-landing .hero h1 em { color: var(--s12-copper); }
 html[data-theme] .stage12-landing .hero :is(.hero-description, .hero-honesty) { color: var(--s12-muted); }
 html[data-theme] .stage12-landing .hero .hero-identity { color: var(--s12-copper); }

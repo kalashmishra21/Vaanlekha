@@ -5,12 +5,16 @@ import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ChevronDown, CircleUserRound, LogOut, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { normalizeLocale, type Locale } from "@/lib/i18n";
+import { useLocale } from "./locale-provider";
 
-type Profile = { displayName: string; email: string; shop: { id: string; name: string; currency: string; phone: string | null; logoUrl: string | null } | null };
-type SaveField = "displayName" | "shopName" | "phone" | "logo" | "email";
+type Profile = { displayName: string; email: string; preferredLanguage: Locale | null; shop: { id: string; name: string; currency: string; phone: string | null; logoUrl: string | null } | null };
+type SaveField = "displayName" | "shopName" | "phone" | "logo" | "email" | "preferredLanguage";
 
 export function ProfileControl() {
   const router = useRouter();
+  const { locale, setLocale, t } = useLocale();
+  const localeRef = useRef(locale);
   const [open, setOpen] = useState(false);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -31,12 +35,29 @@ export function ProfileControl() {
     setLoading(true); setError("");
     try {
       const response = await fetch("/api/profile", { cache: "no-store" });
-      if (!response.ok) throw new Error("Account details could not load. Please try again.");
+      if (!response.ok) throw new Error(t("Account details could not load. Please try again."));
       const data = await response.json() as Profile;
+      const storedLanguage = data.preferredLanguage;
+      data.preferredLanguage = storedLanguage ? normalizeLocale(storedLanguage) : localeRef.current;
       setProfile(data); setDisplayName(data.displayName); setShopName(data.shop?.name || "");
       setPhone(data.shop?.phone || ""); setNewEmail(data.email); setLogoFile(null);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Account details could not load."); }
+      if (storedLanguage) setLocale(data.preferredLanguage);
+      else void fetch("/api/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field: "preferredLanguage", value: localeRef.current }) });
+    } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("Account details could not load.")); }
     finally { setLoading(false); }
+  }, [setLocale, t]);
+
+  useEffect(() => {
+    localeRef.current = locale;
+  }, [locale]);
+
+  useEffect(() => {
+    const sync = (event: Event) => {
+      const next = normalizeLocale((event as CustomEvent<string>).detail);
+      setProfile((current) => current ? { ...current, preferredLanguage: next } : current);
+    };
+    window.addEventListener("vaanlekha-language-changed", sync);
+    return () => window.removeEventListener("vaanlekha-language-changed", sync);
   }, []);
 
   useEffect(() => {
@@ -64,36 +85,48 @@ export function ProfileControl() {
   async function save(field: "displayName" | "shopName" | "phone") {
     const value = (field === "displayName" ? displayName : field === "shopName" ? shopName : phone).trim();
     if (field === "phone" ? Boolean(value && !/^[+0-9()\s-]{6,20}$/.test(value)) : value.length < 2 || value.length > (field === "displayName" ? 80 : 120)) {
-      setError(field === "phone" ? "Enter a valid phone number or leave it blank." : `Use 2–${field === "displayName" ? 80 : 120} characters.`); return;
+      setError(t(field === "phone" ? "Enter a valid phone number or leave it blank." : field === "displayName" ? "Use 2–80 characters." : "Use 2–120 characters.")); return;
     }
     setSaving(field); setError(""); setNotice("");
     try {
       const response = await fetch("/api/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field, value: field === "phone" ? value || null : value }) });
       const result = await response.json() as { ok?: boolean; value?: string | null; error?: string };
-      if (!response.ok || !result.ok) throw new Error(result.error || "The change could not be saved.");
+      if (!response.ok || !result.ok) throw new Error(t(result.error || "The change could not be saved."));
       setProfile((current) => current ? field === "displayName"
         ? { ...current, displayName: result.value || value }
         : { ...current, shop: current.shop ? field === "phone" ? { ...current.shop, phone: result.value ?? null } : { ...current.shop, name: result.value || value } : null } : current);
-      setNotice(field === "displayName" ? "Your name was saved." : field === "phone" ? "Shop phone was saved." : "Your shop name was saved.");
+      setNotice(t(field === "displayName" ? "Your name was saved." : field === "phone" ? "Shop phone was saved." : "Your shop name was saved."));
       router.refresh();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "The change could not be saved."); }
+    } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("The change could not be saved.")); }
+    finally { setSaving(null); }
+  }
+
+  async function saveLanguage(next: Locale) {
+    setLocale(next); setSaving("preferredLanguage"); setError(""); setNotice("");
+    try {
+      const response = await fetch("/api/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field: "preferredLanguage", value: next }) });
+      const result = await response.json() as { ok?: boolean; error?: string };
+      if (!response.ok || !result.ok) throw new Error(result.error || t("Language preference could not be saved."));
+      setProfile((current) => current ? { ...current, preferredLanguage: next } : current);
+      setNotice(t("Language preference saved."));
+    } catch (reason) { setError(reason instanceof Error ? reason.message : t("Language preference could not be saved.")); }
     finally { setSaving(null); }
   }
 
   async function uploadLogo() {
     if (!logoFile) return;
     if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(logoFile.type) || logoFile.size > 2 * 1024 * 1024) {
-      setError("Choose a JPEG, PNG or WebP image under 2 MB."); return;
+      setError(t("Choose a JPEG, PNG or WebP image under 2 MB.")); return;
     }
     setSaving("logo"); setError(""); setNotice("");
     try {
       const form = new FormData(); form.set("image", logoFile);
       const response = await fetch("/api/profile/logo", { method: "POST", body: form });
       const result = await response.json() as { ok?: boolean; logoUrl?: string | null; error?: string };
-      if (!response.ok || !result.ok) throw new Error(result.error || "Image could not be saved.");
+      if (!response.ok || !result.ok) throw new Error(t(result.error || "Image could not be saved."));
       setProfile((current) => current?.shop ? { ...current, shop: { ...current.shop, logoUrl: result.logoUrl || null } } : current);
-      setLogoFile(null); setNotice("Shop image was saved.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Image could not be saved."); }
+      setLogoFile(null); setNotice(t("Shop image was saved."));
+    } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("Image could not be saved.")); }
     finally { setSaving(null); }
   }
 
@@ -101,22 +134,22 @@ export function ProfileControl() {
     const email = newEmail.trim().toLowerCase();
     if (!profile || !email || email === profile.email) return;
     const client = createSupabaseBrowserClient();
-    if (!client) { setError("Email change is unavailable."); return; }
+    if (!client) { setError(t("Email change is unavailable.")); return; }
     setSaving("email"); setError(""); setNotice("");
     try {
       const { error: authError } = await client.auth.updateUser({ email }, { emailRedirectTo: `${window.location.origin}/auth/callback` });
       if (authError) throw authError;
-      setNotice("Verification links have been requested. Your current email stays active until Supabase completes the secure change.");
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Email change could not be requested."); }
+      setNotice(t("Verification links have been requested. Your current email stays active until Supabase completes the secure change."));
+    } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("Email change could not be requested.")); }
     finally { setSaving(null); }
   }
 
   async function signOut() {
     setSigningOut(true); setError("");
     const client = createSupabaseBrowserClient();
-    if (!client) { setError("Connection unavailable. Please try again."); setSigningOut(false); return; }
+    if (!client) { setError(t("Connection unavailable. Please try again.")); setSigningOut(false); return; }
     const { error: authError } = await client.auth.signOut();
-    if (authError) { setError("Could not sign out. Please try again."); setSigningOut(false); return; }
+    if (authError) { setError(t("Could not sign out. Please try again.")); setSigningOut(false); return; }
     setOpen(false);
     router.replace("/");
     router.refresh();
@@ -124,24 +157,24 @@ export function ProfileControl() {
 
   const initial = (profile?.displayName?.trim().charAt(0) || "S").toUpperCase();
   return <div className="profile-control" ref={root}>
-    <button ref={trigger} className="profile-trigger" type="button" aria-label="Account and appearance" aria-expanded={open} aria-controls="profile-menu" onClick={() => setOpen((value) => !value)}>
-      <span className="profile-avatar" aria-hidden="true">{initial}</span><span className="profile-trigger-label">Account</span><ChevronDown size={15} aria-hidden="true" />
+    <button ref={trigger} className="profile-trigger" type="button" aria-label={t("Account and appearance")} aria-expanded={open} aria-controls="profile-menu" onClick={() => setOpen((value) => !value)}>
+      <span className="profile-avatar" aria-hidden="true">{initial}</span><span className="profile-trigger-label">{t("Account")}</span><ChevronDown size={15} aria-hidden="true" />
     </button>
     {open && <div id="profile-menu" className="profile-menu">
-      <div className="profile-menu-identity"><strong>{profile?.displayName || "Your account"}</strong><span>{profile?.email || (loading ? "Loading…" : "Account details unavailable")}</span></div>
-      <button type="button" className="profile-menu-row" onClick={showProfile}><CircleUserRound size={18} aria-hidden="true" /> Profile</button>
-      <button type="button" className="profile-menu-row profile-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={18} aria-hidden="true" />{signingOut ? "Signing out…" : "Sign out"}</button>
-      {error && <p className="profile-menu-error" role="alert">{error}</p>}
+      <div className="profile-menu-identity"><strong>{profile?.displayName || t("Your account")}</strong><span>{profile?.email || (loading ? t("Loading…") : t("Account details unavailable"))}</span></div>
+      <button type="button" className="profile-menu-row" onClick={showProfile}><CircleUserRound size={18} aria-hidden="true" /> {t("Profile")}</button>
+      <button type="button" className="profile-menu-row profile-signout" disabled={signingOut} onClick={() => void signOut()}><LogOut size={18} aria-hidden="true" />{t(signingOut ? "Signing out…" : "Sign out")}</button>
+      {error && <p className="profile-menu-error" role="alert">{t(error)}</p>}
     </div>}
     <dialog ref={dialog} className="profile-dialog" onClose={() => trigger.current?.focus()} onClick={(event) => { if (event.target === dialog.current) dialog.current.close(); }} aria-labelledby="profile-title">
-      <div className="profile-dialog-head"><div><span className="profile-dialog-kicker">YOUR ACCOUNT</span><h2 id="profile-title">Profile &amp; shop</h2></div><button type="button" className="profile-dialog-close" aria-label="Close profile" onClick={() => dialog.current?.close()}><X size={20} aria-hidden="true" /></button></div>
-      {loading && <p role="status">Loading account details…</p>}
+      <div className="profile-dialog-head"><div><span className="profile-dialog-kicker">{t("YOUR ACCOUNT")}</span><h2 id="profile-title">{t("Profile & shop")}</h2></div><button type="button" className="profile-dialog-close" aria-label={t("Close profile")} onClick={() => dialog.current?.close()}><X size={20} aria-hidden="true" /></button></div>
+      {loading && <p role="status">{t("Loading account details…")}</p>}
       {profile && <div className="profile-dialog-content">
-        <div className="profile-dialog-section"><h3>Account</h3><label htmlFor="profile-name">Full name</label><div className="profile-edit-row"><input id="profile-name" value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><button type="button" disabled={Boolean(saving) || displayName.trim() === profile.displayName} onClick={() => void save("displayName")}>{saving === "displayName" ? "Saving…" : "Save name"}</button></div><label htmlFor="profile-email">Email address</label><div className="profile-edit-row"><input id="profile-email" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} aria-describedby="profile-email-help" /><button type="button" disabled={Boolean(saving) || newEmail.trim().toLowerCase() === profile.email} onClick={() => void changeEmail()}>{saving === "email" ? "Sending…" : "Change email"}</button></div><small id="profile-email-help">Current email: {profile.email}. Supabase verifies the change before it takes effect.</small></div>
-        <div className="profile-dialog-section"><h3>Shop</h3>{profile.shop ? <><div className="profile-logo-row">{profile.shop.logoUrl ? <Image src={profile.shop.logoUrl} alt="Shop image" width={72} height={72} unoptimized /> : <span className="profile-logo-placeholder" aria-hidden="true">{profile.shop.name.charAt(0)}</span>}<div><label htmlFor="profile-logo">Shop image</label><input id="profile-logo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setLogoFile(event.target.files?.[0] || null)} /><small>JPEG, PNG or WebP, up to 2 MB. Private to your shop.</small></div><button type="button" disabled={!logoFile || Boolean(saving)} onClick={() => void uploadLogo()}>{saving === "logo" ? "Uploading…" : "Upload"}</button></div><label htmlFor="profile-shop-name">Shop name</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{saving === "shopName" ? "Saving…" : "Save shop"}</button></div><label htmlFor="profile-phone">Shop phone</label><div className="profile-edit-row"><input id="profile-phone" type="tel" value={phone} maxLength={20} onChange={(event) => setPhone(event.target.value)} /><button type="button" disabled={Boolean(saving) || phone.trim() === (profile.shop.phone || "")} onClick={() => void save("phone")}>{saving === "phone" ? "Saving…" : "Save phone"}</button></div><p>Only you can edit this shop. Currency: {profile.shop.currency}.</p></> : <p>Create your shop from the workspace to get started.</p>}</div>
+        <div className="profile-dialog-section"><h3>{t("Account")}</h3><label htmlFor="profile-language">{t("Language preference")}</label><select id="profile-language" value={profile.preferredLanguage ?? locale} disabled={Boolean(saving)} onChange={(event) => void saveLanguage(normalizeLocale(event.target.value))}><option value="hi">हिंदी</option><option value="en">English</option></select><small>{t("Choose the language for buttons, labels and help across Vaanlekha.")}</small><label htmlFor="profile-name">{t("Full name")}</label><div className="profile-edit-row"><input id="profile-name" value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><button type="button" disabled={Boolean(saving) || displayName.trim() === profile.displayName} onClick={() => void save("displayName")}>{t(saving === "displayName" ? "Saving…" : "Save name")}</button></div><label htmlFor="profile-email">{t("Email address")}</label><div className="profile-edit-row"><input id="profile-email" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} aria-describedby="profile-email-help" /><button type="button" disabled={Boolean(saving) || newEmail.trim().toLowerCase() === profile.email} onClick={() => void changeEmail()}>{t(saving === "email" ? "Sending…" : "Change email")}</button></div><small id="profile-email-help">{t("Current email:")} {profile.email}. {t("Supabase verifies the change before it takes effect.")}</small></div>
+        <div className="profile-dialog-section"><h3>{t("Shop")}</h3>{profile.shop ? <><div className="profile-logo-row">{profile.shop.logoUrl ? <Image src={profile.shop.logoUrl} alt={t("Shop image")} width={72} height={72} unoptimized /> : <span className="profile-logo-placeholder" aria-hidden="true">{profile.shop.name.charAt(0)}</span>}<div><label htmlFor="profile-logo">{t("Shop image")}</label><input id="profile-logo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setLogoFile(event.target.files?.[0] || null)} /><small>{t("JPEG, PNG or WebP, up to 2 MB. Private to your shop.")}</small></div><button type="button" disabled={!logoFile || Boolean(saving)} onClick={() => void uploadLogo()}>{t(saving === "logo" ? "Uploading…" : "Upload")}</button></div><label htmlFor="profile-shop-name">{t("Shop name")}</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{t(saving === "shopName" ? "Saving…" : "Save shop")}</button></div><label htmlFor="profile-phone">{t("Shop phone")}</label><div className="profile-edit-row"><input id="profile-phone" type="tel" value={phone} maxLength={20} onChange={(event) => setPhone(event.target.value)} /><button type="button" disabled={Boolean(saving) || phone.trim() === (profile.shop.phone || "")} onClick={() => void save("phone")}>{t(saving === "phone" ? "Saving…" : "Save phone")}</button></div><p>{t("Only you can edit this shop.")} {t("Currency:")} {profile.shop.currency}.</p></> : <p>{t("Create your shop from the workspace to get started.")}</p>}</div>
       </div>}
-      {notice && <p className="profile-notice" role="status">{notice}</p>}
-      {error && <p className="profile-error" role="alert">{error}</p>}
+      {notice && <p className="profile-notice" role="status">{t(notice)}</p>}
+      {error && <p className="profile-error" role="alert">{t(error)}</p>}
     </dialog>
   </div>;
 }

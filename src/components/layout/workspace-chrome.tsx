@@ -8,15 +8,18 @@ import { BrandLockup, BrandMark } from "./brand";
 import { WorkspaceNav } from "./workspace-nav";
 import { ProfileControl } from "./profile-control";
 import { AppearanceControl } from "./appearance-control";
+import { LanguageControl } from "./language-control";
+import { useLocale } from "./locale-provider";
 
 const AssistantWorkspace = dynamic(() => import("@/components/assistant/assistant-workspace").then((module) => module.AssistantWorkspace),
-  { loading: () => <div className="saathi-drawer-loading" role="status">Opening Vaani…</div> });
+  { loading: () => <div className="saathi-drawer-loading" role="status">वाणी खुल रही है…</div> });
 
 export function WorkspaceChrome({ children, shopName, status, description, connected, providerMode, reasonerMode, voiceAvailable }: {
   children: ReactNode; shopName: string; status: string; description: string;
   connected: boolean; providerMode: "mock" | "gnani"; reasonerMode: "mock" | "openrouter" | "gemini"; voiceAvailable: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const { t } = useLocale();
   const pathname = usePathname();
   const expanded = pathname === "/app/assistant";
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -65,31 +68,31 @@ export function WorkspaceChrome({ children, shopName, status, description, conne
 
   const sidebar = (mobileView: boolean) => <>
     <div className="workspace-sidebar-head"><BrandLockup href="/app" className="workspace-brand" />
-      {mobileView ? <button type="button" className="sidebar-icon-button" aria-label="Close navigation" onClick={() => mobile.current?.close()}><X size={19} /></button>
-        : <button type="button" className="sidebar-icon-button sidebar-collapse" aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} onClick={toggleSidebar}>{collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}</button>}
+      {mobileView ? <button type="button" className="sidebar-icon-button" aria-label={t("Close navigation")} onClick={() => mobile.current?.close()}><X size={19} /></button>
+        : <button type="button" className="sidebar-icon-button sidebar-collapse" aria-label={t(collapsed ? "Expand sidebar" : "Collapse sidebar")} aria-expanded={!collapsed} onClick={toggleSidebar}>{collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}</button>}
     </div>
     <WorkspaceNav onNavigate={mobileView ? () => mobile.current?.close() : undefined} />
-    <div className="workspace-sidebar-bottom"><span className="workspace-voice-glyph"><AudioLines size={20} strokeWidth={1.5} aria-hidden="true" /></span><div><strong>{status}</strong><p>{description}</p></div></div>
+    <div className="workspace-sidebar-bottom"><span className="workspace-voice-glyph"><AudioLines size={20} strokeWidth={1.5} aria-hidden="true" /></span><div><strong>{t(status)}</strong><p>{t(description)}</p></div></div>
   </>;
 
   return <div className="workspace-shell">
     <aside className="workspace-sidebar" aria-label="Workspace sidebar">{sidebar(false)}</aside>
     <div className="workspace-content">
       <header className="workspace-topbar">
-        <div className="workspace-topbar-location"><button type="button" className="mobile-menu-button" aria-label="Open navigation" onClick={() => mobile.current?.showModal()}><Menu size={21} /></button><span className="workspace-mobile-symbol"><BrandMark size={26} /></span><span className="workspace-topbar-mark" /><span className="workspace-topbar-shop">{shopName}</span><span className="workspace-topbar-separator">/</span><span className="workspace-topbar-secondary">STORE WORKSPACE</span></div>
-        <div className="workspace-topbar-controls"><AppearanceControl placement="workspace" /><ProfileControl /></div>
+        <div className="workspace-topbar-location"><button type="button" className="mobile-menu-button" aria-label={t("Open navigation")} onClick={() => mobile.current?.showModal()}><Menu size={21} /></button><span className="workspace-mobile-symbol"><BrandMark size={26} /></span><span className="workspace-topbar-mark" /><span className="workspace-topbar-shop">{shopName}</span><span className="workspace-topbar-separator">/</span><span className="workspace-topbar-secondary">{t("STORE WORKSPACE")}</span></div>
+        <div className="workspace-topbar-controls"><LanguageControl compact /><AppearanceControl placement="workspace" /><ProfileControl /></div>
       </header>
       <main className="workspace-main" hidden={expanded}>{children}</main>
       {(assistantLoaded || expanded) && <div ref={drawer} className={expanded ? "shared-assistant-full" : "shared-assistant-drawer"} hidden={!assistantVisible}
-        role={expanded ? undefined : "dialog"} aria-modal={expanded ? undefined : true} aria-label="Vaani assistant">
+        role={expanded ? undefined : "dialog"} aria-modal={expanded ? undefined : true} aria-label={t("Vaani assistant")}>
         <AssistantWorkspace connected={connected} providerMode={providerMode} reasonerMode={reasonerMode} voiceAvailable={voiceAvailable}
           expanded={expanded} onClose={() => setDrawerOpen(false)} />
       </div>}
     </div>
     {!expanded && !drawerOpen && <button ref={floatingTrigger} type="button" className="saathi-float-trigger" onClick={() => { setAssistantLoaded(true); setDrawerOpen(true); }}
-      aria-label="Open Vaani assistant"><MessageCircle size={22} aria-hidden="true" /><span>Ask Vaani</span></button>}
+      aria-label={t("Open Vaani assistant")}><MessageCircle size={22} aria-hidden="true" /><span>{t("Ask Vaani")}</span></button>}
     {drawerOpen && !expanded && <button type="button" className="saathi-drawer-scrim" aria-label="Close Vaani assistant" onClick={() => setDrawerOpen(false)} />}
-    <dialog ref={mobile} className="mobile-nav-dialog" aria-label="Workspace navigation" onClick={(event) => { if (event.target === mobile.current) mobile.current.close(); }}>
+    <dialog ref={mobile} className="mobile-nav-dialog" aria-label={t("Workspace navigation")} onClick={(event) => { if (event.target === mobile.current) mobile.current.close(); }}>
       <div className="mobile-nav-content">{sidebar(true)}</div>
     </dialog>
   </div>;

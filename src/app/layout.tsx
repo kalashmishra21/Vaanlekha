@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import localFont from "next/font/local";
 import { publicSiteUrl } from "@/lib/seo/site-url";
+import { LocaleProvider } from "@/components/layout/locale-provider";
+import { normalizeLocale } from "@/lib/i18n";
 import "./globals.css";
 import "./landing.css";
 import "./workspace.css";
@@ -38,11 +41,13 @@ export const metadata: Metadata = {
   robots: { index: Boolean(siteUrl), follow: Boolean(siteUrl) },
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const cookieStore = await cookies();
+  const locale = normalizeLocale(cookieStore.get("vaanlekha-language")?.value);
   return (
-    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning className={`${manrope.variable} ${newsreader.variable}`}>
+    <html lang={locale === "hi" ? "hi-IN" : "en-IN"} data-scroll-behavior="smooth" suppressHydrationWarning className={`${manrope.variable} ${newsreader.variable}`}>
       <head><script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('dukaansaathi-theme');document.documentElement.dataset.theme=t==='light'||t==='dark'?t:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.sidebar=localStorage.getItem('dukaansaathi-sidebar')==='collapsed'?'collapsed':'expanded'}catch(e){document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.sidebar='expanded'}` }} /></head>
-      <body>{children}</body>
+      <body><LocaleProvider initialLocale={locale}>{children}</LocaleProvider></body>
     </html>
   );
 }

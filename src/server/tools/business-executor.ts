@@ -146,9 +146,11 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
           const savedUnit = parseMerchantUnit(product.unit);
           if (!savedUnit) return { ok: false, error: `The saved unit for ${product.name} is not recognised. Review the product before recording a measured sale.` };
           const quantity = convertQuantity(call.arguments.quantity, call.arguments.unit, savedUnit);
-          const expectedPrice = convertUnitPrice(call.arguments.unitPrice, call.arguments.priceUnit, savedUnit);
-          if (quantity === null || expectedPrice === null) return { ok: false, error: `The stated quantity or price unit cannot be converted to ${product.unit}. Say the unit explicitly; nothing changed.` };
-          if (expectedPrice !== product.sellingPrice) return { ok: false, error: `You said ₹${call.arguments.unitPrice} per ${call.arguments.priceUnit}, but ${product.name} is priced at ₹${product.sellingPrice} per ${product.unit}. Review the price before the sale.` };
+          const hasStatedPrice = call.arguments.unitPrice !== undefined || call.arguments.priceUnit !== undefined;
+          const expectedPrice = call.arguments.unitPrice !== undefined && call.arguments.priceUnit !== undefined
+            ? convertUnitPrice(call.arguments.unitPrice, call.arguments.priceUnit, savedUnit) : null;
+          if (quantity === null || (hasStatedPrice && expectedPrice === null)) return { ok: false, error: `The stated quantity or price unit cannot be converted to ${product.unit}. Say the unit explicitly; nothing changed.` };
+          if (hasStatedPrice && expectedPrice !== product.sellingPrice) return { ok: false, error: `You said ₹${call.arguments.unitPrice} per ${call.arguments.priceUnit}, but ${product.name} is priced at ₹${product.sellingPrice} per ${product.unit}. Review the price before the sale.` };
           const lineTotal = quantityLineTotal(quantity, product.sellingPrice);
           if (lineTotal === null) return { ok: false, error: "The quantity and price cannot be recorded exactly in paise. Nothing changed." };
           const draft = shoppingDraftSchema.parse({ source: "spoken-sale", items: [{ requestedName: call.arguments.product, quantity,

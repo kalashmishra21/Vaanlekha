@@ -39,5 +39,7 @@ describe("Indian spoken quantities", () => {
       product: "चीनी", quantity: 2.5, unit: "kg", unitPrice: 40, priceUnit: "kg",
     });
     expect(parseSpokenSale("पाव तेल देना")).toBeNull();
+    expect(parseSpokenSale("पाव किलो चीनी बेच दो")).toEqual({ product: "चीनी", quantity: 0.25, unit: "kg" });
+    expect(parseSpokenSale("ढाई किलो चावल बेच दो")).toEqual({ product: "चावल", quantity: 2.5, unit: "kg" });
   });
 });

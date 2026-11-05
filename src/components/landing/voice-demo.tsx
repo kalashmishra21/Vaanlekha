@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AudioLines, Check, Pause, Play } from "lucide-react";
+import { useLocale } from "@/components/layout/locale-provider";
 
 const samples = [
   { phrase: "Maggi ke 20 packet add kar do.", intent: "inventory.adjust", detail: "Maggi · +20 packets", note: "Structured preview. Stock is not updated.", audio: "/audio/demo/inventory.wav" },
@@ -11,6 +12,7 @@ const samples = [
 ];
 
 export function LandingVoiceDemo() {
+  const { t } = useLocale();
   const [selected, setSelected] = useState(0);
   const [playing, setPlaying] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,15 +45,15 @@ export function LandingVoiceDemo() {
 
   return (
     <div className="demo-console">
-      <div className="demo-console-header"><span><AudioLines size={16} aria-hidden="true" /> VAANI / VOICE PREVIEW</span><span className="demo-console-signal"><span /> MOCK MODE</span></div>
+      <div className="demo-console-header"><span><AudioLines size={16} aria-hidden="true" /> {t("VAANI / VOICE PREVIEW")}</span><span className="demo-console-signal"><span /> {t("MOCK MODE")}</span></div>
       <div className="demo-console-body">
-        <p className="demo-small-label">SELECT A SAMPLE REQUEST</p>
-        <div className="demo-requests">{samples.map((item, index) => <button key={item.phrase} type="button" className={selected === index ? "selected" : ""} aria-label={`${playing === index ? "Pause" : "Play"} sample: ${item.phrase}`} aria-pressed={playing === index} onClick={() => void choose(index)}><span>{item.phrase}</span>{playing === index ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}</button>)}</div>
+        <p className="demo-small-label">{t("SELECT A SAMPLE REQUEST")}</p>
+        <div className="demo-requests">{samples.map((item, index) => <button key={item.phrase} type="button" className={selected === index ? "selected" : ""} aria-label={`${t(playing === index ? "Pause" : "Play")} ${t("sample:")} ${t(item.phrase)}`} aria-pressed={playing === index} onClick={() => void choose(index)}><span>{t(item.phrase)}</span>{playing === index ? <Pause size={16} aria-hidden="true" /> : <Play size={16} aria-hidden="true" />}</button>)}</div>
         <audio ref={audio} preload="none" onEnded={() => setPlaying(null)} onError={() => { setPlaying(null); setLoading(false); setError("Audio could not load. Please try again."); }} />
-        <p className="demo-audio-status" role="status" aria-live="polite">{error || (loading ? "Loading sample audio…" : playing === null ? "Choose a request to hear it spoken." : "Playing sample audio. Select it again to pause.")}</p>
-        <div className="demo-response" aria-live="polite"><span className="demo-response-kicker"><Check size={15} aria-hidden="true" /> STRUCTURED UNDERSTANDING</span><strong>{sample.intent}</strong><span>{sample.detail}</span><p>{sample.note}</p></div>
+        <p className="demo-audio-status" role="status" aria-live="polite">{error ? t(error) : loading ? t("Loading sample audio…") : playing === null ? t("Choose a request to hear it spoken.") : t("Playing sample audio. Select it again to pause.")}</p>
+        <div className="demo-response" aria-live="polite"><span className="demo-response-kicker"><Check size={15} aria-hidden="true" /> {t("STRUCTURED UNDERSTANDING")}</span><strong>{t(sample.intent)}</strong><span>{t(sample.detail)}</span><p>{t(sample.note)}</p></div>
       </div>
-      <div className="demo-console-footer">DETERMINISTIC DEMO · NO DATA CHANGED</div>
+      <div className="demo-console-footer">{t("DETERMINISTIC DEMO · NO DATA CHANGED")}</div>
     </div>
   );
 }
