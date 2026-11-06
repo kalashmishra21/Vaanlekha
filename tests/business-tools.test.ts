@@ -116,6 +116,22 @@ describe("business boundary", () => {
   it("uses India business-day bounds for sales queries", () => {
     expect(indiaDayBounds("2026-10-07")).toEqual({ start: "2026-10-06T18:30:00.000Z", end: "2026-10-07T18:30:00.000Z" });
     expect(todayInIndia(new Date("2026-10-06T19:00:00Z"))).toBe("2026-10-07");
+    expect(todayInIndia(new Date("2026-10-07T18:29:59.999Z"))).toBe("2026-10-07");
+    expect(todayInIndia(new Date("2026-10-07T18:30:00Z"))).toBe("2026-10-08");
+  });
+
+  it("returns repository sales data for Hindi, Hinglish and English today requests", async () => {
+    const provider = new MockAIProvider(() => "2026-10-07");
+    const commands = ["aaj ki sale batao", "today's sale batao", "what is today's sale"];
+    const executor = new BusinessToolExecutor(fakeRepository().repository);
+    for (const text of commands) {
+      const reasoning = await provider.reason({ text });
+      expect(reasoning).toMatchObject({ kind: "tool_call", tool: { intent: "sales.getDailySummary", arguments: { date: "2026-10-07" } } });
+      if (reasoning.kind !== "tool_call") throw new Error("Expected a daily sales tool call");
+      await expect(executor.execute(reasoning.tool)).resolves.toMatchObject({
+        ok: true, data: { intent: "sales.getDailySummary", date: "2026-10-07", total: 310, count: 2 },
+      });
+    }
   });
 
   it("confirms a stock adjustment only after the repository succeeds", async () => {
@@ -151,6 +167,7 @@ describe("business boundary", () => {
   it.each([
     ["आइसक्रीम", "Ice Cream", "packet", 10],
     ["Ice Cream", "आइसक्रीम", "pack", 10],
+    ["Maggi", "Maggie", "packet", 10],
   ])("matches %s to the saved %s alias and waits for approval", async (savedName, requestName, unit, delta) => {
     let stock = 10;
     const repository = { products: async () => [{ id: "11111111-1111-4111-8111-111111111119", name: savedName, unit: "packet", currentStock: stock, sellingPrice: 25 }],
@@ -163,6 +180,23 @@ describe("business boundary", () => {
     const yes = await new MockAIProvider().reason({ text: "हाँ", pending: JSON.parse(JSON.stringify(proposal.clarification.pending)) });
     if (yes.kind !== "tool_call") throw new Error("Expected stock call after approval");
     expect(await executor.execute(yes.tool)).toMatchObject({ ok: true, data: { newStock: 20 } });
+  });
+
+  it("carries a new Maggie item's context through the price reply and stores the canonical Maggi name", async () => {
+    const provider = new MockAIProvider();
+    const first = await provider.reason({ text: "10 packet maggie add kro" });
+    expect(first).toMatchObject({ kind: "tool_call", tool: { intent: "inventory.adjust", arguments: { product: "Maggi", delta: 10, unit: "packet" } } });
+    if (first.kind !== "tool_call") throw new Error("Expected the inventory request");
+    const fake = fakeRepository();
+    fake.repository.products = async () => [];
+    const executor = new BusinessToolExecutor(fake.repository, "88888888-8888-4888-8888-888888888888");
+    const question = await executor.execute(first.tool);
+    expect(question).toMatchObject({ clarification: { pending: { kind: "product-create-price", product: "Maggi", openingStock: 10 } } });
+    if (!("clarification" in question)) throw new Error("Expected a missing selling price question");
+    const price = await provider.reason({ text: "20", pending: question.clarification.pending });
+    expect(price).toMatchObject({ kind: "tool_call", tool: { intent: "product.create", arguments: { name: "Maggi", sellingPrice: 20, openingStock: 10 } } });
+    if (price.kind !== "tool_call") throw new Error("Expected immediate product creation after price");
+    await expect(executor.execute(price.tool)).resolves.toMatchObject({ ok: true, data: { product: "Maggi", stock: 10, sellingPrice: 20 } });
   });
 
   it.each(["chini", "cheeni", "chinee", "shakkar"])("matches %s to a saved Hindi sugar product for an exact sale draft", async (spokenName) => {
@@ -209,21 +243,22 @@ describe("business boundary", () => {
     expect(fake.getEntries()).toContainEqual({ type: "gave", amount: 100 });
   });
 
-  it("creates a new product only after the missing selling price is supplied", async () => {
+  it("creates a new product as soon as the missing selling price is supplied", async () => {
     const provider = new MockAIProvider();
     const first = await provider.reason({ text: "50 packet of Bread add kro new inventory h ye" });
     expect(first).toMatchObject({ kind: "clarify", pending: { kind: "product-create-price", openingStock: 50 } });
     if (first.kind !== "clarify" || !first.pending) throw new Error("Expected a product-price clarification");
-    const confirmation = await provider.reason({ text: "₹18 per packet", pending: first.pending });
-    expect(confirmation).toMatchObject({ kind: "clarify", pending: { kind: "product-create-confirm", sellingPrice: 18 } });
-    if (confirmation.kind !== "clarify" || !confirmation.pending) throw new Error("Expected creation confirmation");
-    const completed = await provider.reason({ text: "yes", pending: confirmation.pending });
+    const completed = await provider.reason({ text: "20", pending: first.pending });
     expect(completed).toMatchObject({ kind: "tool_call", tool: { intent: "product.create" } });
     if (completed.kind !== "tool_call") throw new Error("Expected validated product creation intent");
     const fake = fakeRepository();
-    const result = await executeValidatedToolCall(completed.tool, new BusinessToolExecutor(fake.repository));
-    expect(result).toMatchObject({ ok: true, data: { product: "Bread", stock: 50, sellingPrice: 18 } });
+    const executor = new BusinessToolExecutor(fake.repository, "77777777-7777-4777-8777-777777777777");
+    const result = await executeValidatedToolCall(completed.tool, executor);
+    expect(result).toMatchObject({ ok: true, data: { product: "Bread", stock: 50, sellingPrice: 20 } });
+    const replay = await executor.execute(completed.tool);
+    expect(replay).toMatchObject({ ok: false, clarification: { pending: { kind: "product-existing-confirm", product: "Bread" } } });
     expect(fake.repository.createProduct).toBeDefined();
+    expect((await fake.repository.products()).filter((product) => product.name === "Bread")).toHaveLength(1);
   });
 
   it("routes an existing matching customer to an entry and a missing one through explicit permission", async () => {

@@ -92,7 +92,9 @@ function titleName(value: string): string {
 }
 
 function canonicalProductName(value: string): string {
-  return value.trim() === "मैगी" ? "Maggi" : titleName(value.replace(/\bcreame\b/giu, "cream"));
+  const trimmed = value.trim();
+  if (/^(?:maggi|maggie|मैगी)$/iu.test(trimmed)) return "Maggi";
+  return titleName(value.replace(/\bmaggie\b/giu, "Maggi").replace(/मैगी/gu, "Maggi").replace(/\bcreame\b/giu, "cream"));
 }
 
 function tool(intent: string, args: unknown): ReasoningResult {
@@ -153,8 +155,7 @@ function confirmPending(pending: PendingClarification, text: string): ReasoningR
   if (pending.kind === "product-create-price") {
     const sellingPrice = parsePendingProductPrice(text, pending);
     if (sellingPrice === null) return clarification(`Enter a selling price in rupees per ${pending.unit}. Nothing was created.`, pending, "product.create");
-    return clarification(`Create ${pending.product} with ${pending.openingStock} ${pending.unit}(s) at ₹${sellingPrice} each? Reply yes or cancel. Nothing has been saved.`,
-      { kind: "product-create-confirm", product: pending.product, unit: pending.unit, openingStock: pending.openingStock, sellingPrice }, "product.create");
+    return tool("product.create", { name: pending.product, unit: pending.unit, sellingPrice, openingStock: pending.openingStock, threshold: 5 });
   }
   if (pending.kind === "product-create-confirm") {
     if (!isYes(text)) return clarification(`Create ${pending.product} with ${pending.openingStock} ${pending.unit}(s) at ₹${pending.sellingPrice} each? Reply yes or cancel. Nothing has been saved.`, pending, "product.create");
@@ -281,7 +282,7 @@ function parseNewProduct(text: string): ReasoningResult | null {
   if (!product || !unit || openingStock === null || openingStock < 0 || openingStock > 100000) {
     return clarification("Tell me the product name, opening quantity and unit, for example ‘50 packets of Bread as a new item’. Nothing was created.", undefined, "product.create");
   }
-  product = titleName(product.replace(/^(?:of|ka|ke)\s+/i, ""));
+  product = canonicalProductName(titleName(product.replace(/^(?:of|ka|ke)\s+/i, "")));
   return clarification(`What is the selling price per ${unit} for ${product}? Please give the price in rupees. Nothing has been created yet.`, {
     kind: "product-create-price", product, unit, openingStock,
   }, "product.create");
@@ -339,7 +340,7 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
   }
   if (spokenQuantity?.unit && /\b(?:add|jodo|daal|restock)\b/iu.test(text)) {
     const product = spokenQuantity.rest.replace(/\s+(?:(?:add|jodo|daal|restock)(?:\s+(?:karo|kro|kar do))?|(?:karo|kro|kar do))\s*$/iu, "").trim();
-    if (product && product !== spokenQuantity.rest) return tool("inventory.adjust", { product: titleName(product), delta: spokenQuantity.quantity, unit: spokenQuantity.unit });
+    if (product && product !== spokenQuantity.rest) return tool("inventory.adjust", { product: canonicalProductName(titleName(product)), delta: spokenQuantity.quantity, unit: spokenQuantity.unit });
   }
   const pending = /^(?:customer add(?: karo)?|add customer)$/iu.test(text)
     ? clarification("What is the customer's name? Nothing has been added yet.", { kind: "customer-name" }, "customer.create") : null;
@@ -431,7 +432,7 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
   if (/^(?:supplier add|add supplier)$/iu.test(text)) return clarification("What is the supplier's name? Nothing has been added yet.", { kind: "supplier-name" }, "supplier.create");
   if (/^(?:open orders? dikhao|purchase orders? dikhao|orders? dikhao|show (?:open )?orders?)$/iu.test(text)) return tool("orders.getOpen", {});
 
-  if (/^(?:what(?:'s| is| are) today's sales|tell me today's (?:total )?sales|today's sales summary|aaj ki (?:total )?sale batao|aaj ki sales batao|aaj ki bikri batao)$/iu.test(text))
+  if (/^(?:what(?:'s| is| are) today['’]?s? (?:total )?sales?|tell me today['’]?s? (?:total )?sales?|today['’]?s? (?:total )?sales?(?: batao| dikhao)?|today['’]?s? sales summary|aaj ki (?:total )?(?:sale|sales|bikri) (?:batao|dikhao))$/iu.test(text))
     return tool("sales.getDailySummary", { date: today });
 
   const bareProduct = /^(.+)\s+(\d+|[a-z]+(?:\s+sau)?)\s+(packets?|pieces?|units?|bottles?|boxes?)$/iu.exec(text);

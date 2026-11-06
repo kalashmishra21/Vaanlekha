@@ -13,6 +13,10 @@ export type ReorderRecord = { product: string; stock: number; threshold: number;
 export type OrderStatus = "draft" | "placed" | "received" | "cancelled";
 export type OpenOrderRecord = { id: string; supplier: string; status: OrderStatus; items: string[] };
 
+function canonicalProductAlias(value: string): string {
+  return value.trim().replace(/\bmaggie\b/giu, "Maggi").replace(/मैगी/gu, "Maggi");
+}
+
 export interface BusinessRepository {
   products(): Promise<ProductRecord[]>;
   createProduct(input: { name: string; unit: string; sellingPrice: number; openingStock: number; threshold: number }, requestKey: string): Promise<ProductRecord>;
@@ -35,6 +39,7 @@ export interface BusinessRepository {
 
 function normalizedName(value: string): string {
   return value.toLocaleLowerCase("en-IN").normalize("NFKC")
+    .replace(/\bmaggie\b/gu, "maggi").replace(/मैगी/gu, "maggi")
     .replace(/आइस\s*क्रीम|आइस्क्रीम|आईस्क्रीम|ice\s*cream/gu, "icecream")
     .replace(/चीनी/gu, "sugar").replace(/दूध/gu, "milk").replace(/तेल/gu, "oil")
     .replace(/\b(?:chini|cheeni|chinee|shakkar)\b/gu, "sugar")
@@ -96,7 +101,8 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
     try {
       switch (call.intent) {
         case "product.create": {
-          const existing = matchByName(await this.repository.products(), call.arguments.name);
+          const name = canonicalProductAlias(call.arguments.name);
+          const existing = matchByName(await this.repository.products(), name);
           if (existing) {
             const delta = stockDelta(call.arguments.openingStock, call.arguments.unit, existing.unit);
             if (delta === null) return { ok: false, error: `The requested unit cannot be safely converted to ${existing.unit}. No stock changed.` };
@@ -105,21 +111,22 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
             });
           }
           const product = await this.repository.createProduct({
-            name: call.arguments.name, unit: call.arguments.unit, sellingPrice: call.arguments.sellingPrice,
+            name, unit: call.arguments.unit, sellingPrice: call.arguments.sellingPrice,
             openingStock: call.arguments.openingStock, threshold: call.arguments.threshold,
           }, this.requestKey);
           return { ok: true, data: { intent: call.intent, product: product.name, unit: product.unit, sellingPrice: product.sellingPrice, stock: product.currentStock } };
         }
         case "inventory.adjust":
         case "inventory.adjustConfirmed": {
-          const product = matchByName(await this.repository.products(), call.arguments.product);
+          const requestedProduct = canonicalProductAlias(call.arguments.product);
+          const product = matchByName(await this.repository.products(), requestedProduct);
           if (!product && call.arguments.delta > 0 && call.arguments.unit) return clarificationResult(
-            `${call.arguments.product} is not in inventory. What selling price should I use per ${call.arguments.unit} to create it with ${call.arguments.delta} opening units? Nothing has been changed.`,
-            { kind: "product-create-price", product: call.arguments.product, unit: call.arguments.unit, openingStock: call.arguments.delta },
+            `${requestedProduct} is not in inventory. What selling price should I use per ${call.arguments.unit} to create it with ${call.arguments.delta} opening units? Nothing has been changed.`,
+            { kind: "product-create-price", product: requestedProduct, unit: call.arguments.unit, openingStock: call.arguments.delta },
           );
           if (!product && call.arguments.delta > 0) return clarificationResult(
-            `${call.arguments.product} is not in inventory. What unit should I use to create it with ${call.arguments.delta} opening units? No stock changed.`,
-            { kind: "product-create-unit", product: call.arguments.product, openingStock: call.arguments.delta },
+            `${requestedProduct} is not in inventory. What unit should I use to create it with ${call.arguments.delta} opening units? No stock changed.`,
+            { kind: "product-create-unit", product: requestedProduct, openingStock: call.arguments.delta },
           );
           if (!product) return { ok: false, error: "Product not found. No stock changed." };
           const delta = stockDelta(call.arguments.delta, call.arguments.unit, product.unit);

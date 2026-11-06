@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ChevronDown, CircleUserRound, LogOut, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { normalizeLocale, type Locale } from "@/lib/i18n";
+import { indianMobileError, indianMobileInsertionError } from "@/lib/business/indian-mobile";
+import { validateShopLogoFile } from "@/lib/business/shop-logo";
 import { useLocale } from "./locale-provider";
 
 type Profile = { displayName: string; email: string; preferredLanguage: Locale | null; shop: { id: string; name: string; currency: string; phone: string | null; logoUrl: string | null } | null };
@@ -23,13 +25,37 @@ export function ProfileControl() {
   const [displayName, setDisplayName] = useState("");
   const [shopName, setShopName] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const [newEmail, setNewEmail] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const root = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const logoInput = useRef<HTMLInputElement>(null);
+  const logoPreviewUrl = useRef<string | null>(null);
+
+  const clearLogoPreview = useCallback(() => {
+    if (logoPreviewUrl.current) URL.revokeObjectURL(logoPreviewUrl.current);
+    logoPreviewUrl.current = null;
+    setLogoPreview(null);
+  }, []);
+
+  function selectLogoFile(file: File | null) {
+    clearLogoPreview();
+    setLogoFile(null);
+    if (!file) return;
+    const validation = validateShopLogoFile(file);
+    if (validation) { setError(t(validation)); return; }
+    const previewUrl = URL.createObjectURL(file);
+    logoPreviewUrl.current = previewUrl;
+    setLogoPreview(previewUrl);
+    setLogoFile(file);
+    setError("");
+    setNotice("");
+  }
 
   const loadProfile = useCallback(async () => {
     setLoading(true); setError("");
@@ -40,16 +66,21 @@ export function ProfileControl() {
       const storedLanguage = data.preferredLanguage;
       data.preferredLanguage = storedLanguage ? normalizeLocale(storedLanguage) : localeRef.current;
       setProfile(data); setDisplayName(data.displayName); setShopName(data.shop?.name || "");
-      setPhone(data.shop?.phone || ""); setNewEmail(data.email); setLogoFile(null);
+      setPhone(data.shop?.phone || ""); setPhoneError(indianMobileError(data.shop?.phone || ""));
+      setNewEmail(data.email); setLogoFile(null); clearLogoPreview();
       if (storedLanguage) setLocale(data.preferredLanguage);
       else void fetch("/api/profile", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ field: "preferredLanguage", value: localeRef.current }) });
     } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("Account details could not load.")); }
     finally { setLoading(false); }
-  }, [setLocale, t]);
+  }, [clearLogoPreview, setLocale, t]);
 
   useEffect(() => {
     localeRef.current = locale;
   }, [locale]);
+
+  useEffect(() => () => {
+    if (logoPreviewUrl.current) URL.revokeObjectURL(logoPreviewUrl.current);
+  }, []);
 
   useEffect(() => {
     const sync = (event: Event) => {
@@ -67,8 +98,8 @@ export function ProfileControl() {
 
   useEffect(() => {
     if (!open) return;
-    const close = (event: MouseEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent && event.key === "Escape") { setOpen(false); trigger.current?.focus(); }
+    const close = (event: MouseEvent | globalThis.KeyboardEvent) => {
+      if (event instanceof globalThis.KeyboardEvent && event.key === "Escape") { setOpen(false); trigger.current?.focus(); }
       if (event instanceof MouseEvent && !root.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", close);
@@ -83,9 +114,14 @@ export function ProfileControl() {
   }
 
   async function save(field: "displayName" | "shopName" | "phone") {
-    const value = (field === "displayName" ? displayName : field === "shopName" ? shopName : phone).trim();
-    if (field === "phone" ? Boolean(value && !/^[+0-9()\s-]{6,20}$/.test(value)) : value.length < 2 || value.length > (field === "displayName" ? 80 : 120)) {
-      setError(t(field === "phone" ? "Enter a valid phone number or leave it blank." : field === "displayName" ? "Use 2–80 characters." : "Use 2–120 characters.")); return;
+    const rawValue = field === "displayName" ? displayName : field === "shopName" ? shopName : phone;
+    const value = field === "phone" ? rawValue : rawValue.trim();
+    if (field === "phone") {
+      const validation = indianMobileError(value);
+      setPhoneError(validation);
+      if (validation) return;
+    } else if (value.length < 2 || value.length > (field === "displayName" ? 80 : 120)) {
+      setError(t(field === "displayName" ? "Use 2–80 characters." : "Use 2–120 characters.")); return;
     }
     setSaving(field); setError(""); setNotice("");
     try {
@@ -96,9 +132,23 @@ export function ProfileControl() {
         ? { ...current, displayName: result.value || value }
         : { ...current, shop: current.shop ? field === "phone" ? { ...current.shop, phone: result.value ?? null } : { ...current.shop, name: result.value || value } : null } : current);
       setNotice(t(field === "displayName" ? "Your name was saved." : field === "phone" ? "Shop phone was saved." : "Your shop name was saved."));
+      if (field === "phone") setPhoneError(null);
       router.refresh();
     } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("The change could not be saved.")); }
     finally { setSaving(null); }
+  }
+
+  function checkPhoneKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key.length !== 1) return;
+    const input = event.currentTarget;
+    const validation = indianMobileInsertionError(input.value, input.selectionStart, input.selectionEnd, event.key);
+    if (validation) setPhoneError(validation);
+  }
+
+  function checkPhonePaste(event: ClipboardEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const validation = indianMobileInsertionError(input.value, input.selectionStart, input.selectionEnd, event.clipboardData.getData("text"));
+    if (validation) { event.preventDefault(); setPhoneError(validation); }
   }
 
   async function saveLanguage(next: Locale) {
@@ -115,9 +165,8 @@ export function ProfileControl() {
 
   async function uploadLogo() {
     if (!logoFile) return;
-    if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(logoFile.type) || logoFile.size > 2 * 1024 * 1024) {
-      setError(t("Choose a JPEG, PNG or WebP image under 2 MB.")); return;
-    }
+    const validation = validateShopLogoFile(logoFile);
+    if (validation) { setError(t(validation)); return; }
     setSaving("logo"); setError(""); setNotice("");
     try {
       const form = new FormData(); form.set("image", logoFile);
@@ -125,7 +174,9 @@ export function ProfileControl() {
       const result = await response.json() as { ok?: boolean; logoUrl?: string | null; error?: string };
       if (!response.ok || !result.ok) throw new Error(t(result.error || "Image could not be saved."));
       setProfile((current) => current?.shop ? { ...current, shop: { ...current.shop, logoUrl: result.logoUrl || null } } : current);
-      setLogoFile(null); setNotice(t("Shop image was saved."));
+      setLogoFile(null); clearLogoPreview();
+      if (logoInput.current) logoInput.current.value = "";
+      setNotice(t("Shop image was saved."));
     } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("Image could not be saved.")); }
     finally { setSaving(null); }
   }
@@ -156,6 +207,7 @@ export function ProfileControl() {
   }
 
   const initial = (profile?.displayName?.trim().charAt(0) || "S").toUpperCase();
+  const logoToPreview = logoPreview || profile?.shop?.logoUrl;
   return <div className="profile-control" ref={root}>
     <button ref={trigger} className="profile-trigger" type="button" aria-label={t("Account and appearance")} aria-expanded={open} aria-controls="profile-menu" onClick={() => setOpen((value) => !value)}>
       <span className="profile-avatar" aria-hidden="true">{initial}</span><span className="profile-trigger-label">{t("Account")}</span><ChevronDown size={15} aria-hidden="true" />
@@ -171,7 +223,7 @@ export function ProfileControl() {
       {loading && <p role="status">{t("Loading account details…")}</p>}
       {profile && <div className="profile-dialog-content">
         <div className="profile-dialog-section"><h3>{t("Account")}</h3><label htmlFor="profile-language">{t("Language preference")}</label><select id="profile-language" value={profile.preferredLanguage ?? locale} disabled={Boolean(saving)} onChange={(event) => void saveLanguage(normalizeLocale(event.target.value))}><option value="hi">हिंदी</option><option value="en">English</option></select><small>{t("Choose the language for buttons, labels and help across Vaanlekha.")}</small><label htmlFor="profile-name">{t("Full name")}</label><div className="profile-edit-row"><input id="profile-name" value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><button type="button" disabled={Boolean(saving) || displayName.trim() === profile.displayName} onClick={() => void save("displayName")}>{t(saving === "displayName" ? "Saving…" : "Save name")}</button></div><label htmlFor="profile-email">{t("Email address")}</label><div className="profile-edit-row"><input id="profile-email" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} aria-describedby="profile-email-help" /><button type="button" disabled={Boolean(saving) || newEmail.trim().toLowerCase() === profile.email} onClick={() => void changeEmail()}>{t(saving === "email" ? "Sending…" : "Change email")}</button></div><small id="profile-email-help">{t("Current email:")} {profile.email}. {t("Supabase verifies the change before it takes effect.")}</small></div>
-        <div className="profile-dialog-section"><h3>{t("Shop")}</h3>{profile.shop ? <><div className="profile-logo-row">{profile.shop.logoUrl ? <Image src={profile.shop.logoUrl} alt={t("Shop image")} width={72} height={72} unoptimized /> : <span className="profile-logo-placeholder" aria-hidden="true">{profile.shop.name.charAt(0)}</span>}<div><label htmlFor="profile-logo">{t("Shop image")}</label><input id="profile-logo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setLogoFile(event.target.files?.[0] || null)} /><small>{t("JPEG, PNG or WebP, up to 2 MB. Private to your shop.")}</small></div><button type="button" disabled={!logoFile || Boolean(saving)} onClick={() => void uploadLogo()}>{t(saving === "logo" ? "Uploading…" : "Upload")}</button></div><label htmlFor="profile-shop-name">{t("Shop name")}</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{t(saving === "shopName" ? "Saving…" : "Save shop")}</button></div><label htmlFor="profile-phone">{t("Shop phone")}</label><div className="profile-edit-row"><input id="profile-phone" type="tel" value={phone} maxLength={20} onChange={(event) => setPhone(event.target.value)} /><button type="button" disabled={Boolean(saving) || phone.trim() === (profile.shop.phone || "")} onClick={() => void save("phone")}>{t(saving === "phone" ? "Saving…" : "Save phone")}</button></div><p>{t("Only you can edit this shop.")} {t("Currency:")} {profile.shop.currency}.</p></> : <p>{t("Create your shop from the workspace to get started.")}</p>}</div>
+        <div className="profile-dialog-section"><h3>{t("Shop")}</h3>{profile.shop ? <><div className="profile-logo-row">{logoToPreview ? <Image src={logoToPreview} alt={t("Shop image")} width={72} height={72} unoptimized /> : <span className="profile-logo-placeholder" aria-hidden="true">{profile.shop.name.charAt(0)}</span>}<div><label htmlFor="profile-logo">{t("Shop image")}</label><input ref={logoInput} id="profile-logo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectLogoFile(event.currentTarget.files?.[0] ?? null)} /><small>{t("JPEG, PNG or WebP, up to 2 MB. Private to your shop.")}</small></div><button type="button" disabled={!logoFile || Boolean(saving)} onClick={() => void uploadLogo()}>{t(saving === "logo" ? "Uploading…" : "Upload")}</button></div><label htmlFor="profile-shop-name">{t("Shop name")}</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{t(saving === "shopName" ? "Saving…" : "Save shop")}</button></div><label htmlFor="profile-phone">{t("Shop phone")}</label><div className="profile-edit-row"><input id="profile-phone" type="tel" inputMode="numeric" autoComplete="tel-national" value={phone} maxLength={10} aria-invalid={Boolean(phoneError)} aria-describedby={phoneError ? "profile-phone-error" : undefined} onChange={(event) => { const value = event.currentTarget.value; setPhone(value); setPhoneError(indianMobileError(value)); setError(""); }} onKeyDown={checkPhoneKey} onPaste={checkPhonePaste} /><button type="button" disabled={Boolean(saving) || phone === (profile.shop.phone || "")} onClick={() => void save("phone")}>{t(saving === "phone" ? "Saving…" : "Save phone")}</button></div>{phoneError && <small id="profile-phone-error" className="profile-field-error" role="alert">{t(phoneError)}</small>}<p>{t("Only you can edit this shop.")} {t("Currency:")} {profile.shop.currency}.</p></> : <p>{t("Create your shop from the workspace to get started.")}</p>}</div>
       </div>}
       {notice && <p className="profile-notice" role="status">{t(notice)}</p>}
       {error && <p className="profile-error" role="alert">{t(error)}</p>}

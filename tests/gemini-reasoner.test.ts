@@ -95,10 +95,12 @@ describe("optional Gemini reasoner", () => {
     expect(requests).toHaveLength(0);
   });
 
-  it("requires both server-side keys in Gemini mode", () => {
+  it("requires Gemini's server-side key and allows OpenRouter fallback to be omitted", async () => {
     expect(() => createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "gemini", OPENROUTER_API_KEY: "router" }))
       .toThrow("GEMINI_API_KEY");
-    expect(() => createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "gemini", GEMINI_API_KEY: "gemini" }))
-      .toThrow("OPENROUTER_API_KEY");
+    vi.stubGlobal("fetch", async () => completion("supplier_list", {}));
+    await expect(createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "gemini", GEMINI_API_KEY: "gemini" })
+      .reason({ text: "Could you list our vendors?" })).resolves.toMatchObject({ kind: "tool_call", tool: { intent: "supplier.list" } });
+    expect(() => createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "openrouter" })).toThrow("OPENROUTER_API_KEY");
   });
 });

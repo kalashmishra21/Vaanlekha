@@ -14,9 +14,9 @@ describe("vernacular assistant actions", () => {
     const provider = new MockAIProvider();
     const pending = { kind: "product-create-price" as const, product: "Test Kulfi", unit: "packet", openingStock: 10 };
     const confirmed = await provider.reason({ text: "25 ki ek kulfi", pending });
-    expect(confirmed).toMatchObject({ kind: "clarify", pending: { kind: "product-create-confirm", product: "Test Kulfi", openingStock: 10, sellingPrice: 25 } });
+    expect(confirmed).toMatchObject({ kind: "tool_call", tool: { intent: "product.create", arguments: { name: "Test Kulfi", openingStock: 10, sellingPrice: 25 } } });
     const unrelated = await provider.reason({ text: "25 ki ek samosa", pending });
-    expect(unrelated).not.toMatchObject({ pending: { kind: "product-create-confirm", product: "Test Kulfi" } });
+    expect(unrelated).not.toMatchObject({ tool: { intent: "product.create", arguments: { name: "Test Kulfi" } } });
   });
   it("drafts 2.5 kg sugar at ₹40/kg for ₹100 without saving", async () => {
     const proposed = await new MockAIProvider().reason({ text: "ढाई किलो चीनी 40 रुपये किलो के हिसाब से बेच दो" });

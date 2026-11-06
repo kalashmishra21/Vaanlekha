@@ -102,6 +102,7 @@ html[data-sidebar="collapsed"] .workspace-sidebar-bottom { justify-content: cent
 .profile-logo-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--ws-line); border-radius: 12px; background: var(--ws-field); }
 .profile-logo-row img, .profile-logo-placeholder { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; }
 .profile-logo-placeholder { display: grid; place-items: center; background: var(--ws-deep); color: var(--ws-deep-ink); font: 32px var(--font-editorial); }
+.profile-dialog .profile-field-error, .business-form small[role="alert"] { display: block; color: var(--ws-negative); font-size: 12px; }
 .profile-logo-row input[type="file"] { min-height: 0; padding: 5px 0; border: 0; font-size: 11px; }
 .profile-logo-row button { padding: 9px 11px; border: 0; border-radius: 7px; background: var(--ws-deep); color: var(--ws-deep-ink); font-size: 12px; font-weight: 700; }
 .profile-logo-row button:disabled { opacity: .45; }

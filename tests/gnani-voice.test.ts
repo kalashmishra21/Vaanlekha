@@ -7,10 +7,8 @@ describe("Gnani voice boundary without network calls", () => {
   afterEach(() => vi.unstubAllEnvs());
   it("keeps mock mode free of Gnani credentials", () => {
     expect(createAIProvider({ AI_PROVIDER: "mock" })).toBeDefined();
-    vi.stubEnv("GNANI_API_KEY", "");
     expect(() => createAIProvider({ AI_PROVIDER: "gnani" })).toThrow("GNANI_API_KEY");
-    vi.stubEnv("GNANI_API_KEY", "test-key");
-    expect(createAIProvider({ AI_PROVIDER: "gnani" })).toBeInstanceOf(GnaniVoiceProvider);
+    expect(createAIProvider({ AI_PROVIDER: "gnani", GNANI_API_KEY: "test-key" })).toBeInstanceOf(GnaniVoiceProvider);
   });
 
   it("encodes a bounded mono WAV suitable for Prisma", () => {

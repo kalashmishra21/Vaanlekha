@@ -5,6 +5,8 @@ import { toolCallSchema } from "../src/lib/ai/types/tool-call";
 
 const cases: Array<{ text: string; kind: "tool_call" | "clarify" | "unsupported"; intent?: string }> = [
   { text: "Maggi ke 20 packet add kar do", kind: "tool_call", intent: "inventory.adjust" },
+  { text: "20 packet Maggi add karo", kind: "tool_call", intent: "inventory.adjust" },
+  { text: "10 packet maggie add kro", kind: "tool_call", intent: "inventory.adjust" },
   { text: "Maggi ke 20 packets add kro", kind: "tool_call", intent: "inventory.adjust" },
   { text: "Maggi ke bees packet jodo", kind: "tool_call", intent: "inventory.adjust" },
   { text: "Maggi ke 50 packet add kro", kind: "tool_call", intent: "inventory.adjust" },
@@ -51,8 +53,12 @@ const cases: Array<{ text: string; kind: "tool_call" | "clarify" | "unsupported"
   { text: "Order 123 receive karo", kind: "tool_call", intent: "orders.transition" },
   { text: "Order 123 cancel karo", kind: "tool_call", intent: "orders.transition" },
   { text: "Aaj ki sale batao", kind: "tool_call", intent: "sales.getDailySummary" },
+  { text: "Aaj ki sales batao", kind: "tool_call", intent: "sales.getDailySummary" },
   { text: "Aaj ki total sale batao", kind: "tool_call", intent: "sales.getDailySummary" },
   { text: "What are today's sales?", kind: "tool_call", intent: "sales.getDailySummary" },
+  { text: "today's sale batao", kind: "tool_call", intent: "sales.getDailySummary" },
+  { text: "what is today's sale", kind: "tool_call", intent: "sales.getDailySummary" },
+  { text: "what is today's sale?", kind: "tool_call", intent: "sales.getDailySummary" },
   { text: "आज की बिक्री बताओ", kind: "tool_call", intent: "sales.getDailySummary" },
   { text: "Shopping list: Maggi 2, Parle-G 3", kind: "tool_call", intent: "inventory.checkList" },
   { text: "Kuchh maal adjust kar do", kind: "clarify" },
@@ -90,10 +96,7 @@ describe("offline merchant-language benchmark", () => {
     const product = await provider.reason({ text: "50 packet of Bread add kro new inventory h ye" });
     expect(product).toMatchObject({ kind: "clarify", pending: { kind: "product-create-price", product: "Bread", unit: "packet", openingStock: 50 } });
     if (product.kind !== "clarify" || !product.pending) throw new Error("Expected product price clarification");
-    const productConfirmation = await provider.reason({ text: "₹18 per packet", pending: product.pending });
-    expect(productConfirmation).toMatchObject({ kind: "clarify", pending: { kind: "product-create-confirm", sellingPrice: 18 } });
-    if (productConfirmation.kind !== "clarify" || !productConfirmation.pending) throw new Error("Expected product approval");
-    await expect(provider.reason({ text: "haan", pending: productConfirmation.pending })).resolves.toMatchObject({
+    await expect(provider.reason({ text: "₹18 per packet", pending: product.pending })).resolves.toMatchObject({
       kind: "tool_call", tool: { intent: "product.create", arguments: { name: "Bread", unit: "packet", sellingPrice: 18, openingStock: 50 } },
     });
 

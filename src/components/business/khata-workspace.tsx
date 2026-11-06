@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { ExternalLink } from "lucide-react";
 import { rupees } from "@/lib/business/calculations";
+import { indianMobileError, indianMobileInsertionError } from "@/lib/business/indian-mobile";
 import { khataReminder } from "@/lib/business/sharing";
 import type { Customer, KhataEntry } from "@/lib/business/schemas";
 import { useBusinessMutation } from "./use-business-mutation";
@@ -13,6 +14,7 @@ export function KhataWorkspace({ customers, entries, balances, shopName }: { cus
   const [selectedId, setSelectedId] = useState<string | null>(customers[0]?.id ?? null);
   const [search, setSearch] = useState("");
   const [entryType, setEntryType] = useState<"gave" | "received">("gave");
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const selected = customers.find((customer) => customer.id === selectedId) ?? null;
   const reminder = selected ? khataReminder(selected, balances[selected.id] ?? 0, shopName) : null;
   const visible = customers.filter((customer) => `${customer.name} ${customer.phone ?? ""}`.toLocaleLowerCase("en-IN").includes(search.toLocaleLowerCase("en-IN")));
@@ -22,8 +24,25 @@ export function KhataWorkspace({ customers, entries, balances, shopName }: { cus
     event.preventDefault();
     const form = event.currentTarget;
     const values = new FormData(form);
-    const result = await run({ kind: "customer.create", name: String(values.get("name") || "").trim(), phone: String(values.get("phone") || "").trim() || undefined }, t("Customer added."));
-    if (result) { setSelectedId(String(result.id)); setEntryType("gave"); form.reset(); }
+    const phone = String(values.get("phone") ?? "");
+    const validation = indianMobileError(phone);
+    setPhoneError(validation);
+    if (validation) return;
+    const result = await run({ kind: "customer.create", name: String(values.get("name") || "").trim(), phone: phone || undefined }, t("Customer added."));
+    if (result) { setSelectedId(String(result.id)); setEntryType("gave"); form.reset(); setPhoneError(null); }
+  }
+
+  function checkPhoneKey(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key.length !== 1) return;
+    const input = event.currentTarget;
+    const validation = indianMobileInsertionError(input.value, input.selectionStart, input.selectionEnd, event.key);
+    if (validation) setPhoneError(validation);
+  }
+
+  function checkPhonePaste(event: ClipboardEvent<HTMLInputElement>) {
+    const input = event.currentTarget;
+    const validation = indianMobileInsertionError(input.value, input.selectionStart, input.selectionEnd, event.clipboardData.getData("text"));
+    if (validation) { event.preventDefault(); setPhoneError(validation); }
   }
 
   async function addEntry(event: FormEvent<HTMLFormElement>) {
@@ -40,7 +59,7 @@ export function KhataWorkspace({ customers, entries, balances, shopName }: { cus
       <section className="business-section"><div className="section-heading"><span>{t("CUSTOMERS")} / {customers.length}</span></div>
         <label className="business-search"><span className="sr-only">{t("Search customers")}</span><input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t("Search customer or phone")} /></label>
         <div className="customer-list">{visible.length ? visible.map((customer) => <button className={selected?.id === customer.id ? "customer-row selected" : "customer-row"} type="button" key={customer.id} onClick={() => { setSelectedId(customer.id); setEntryType("gave"); }} aria-pressed={selected?.id === customer.id}><span><strong>{customer.name}</strong><small>{customer.phone || t("No phone saved")}</small></span><span>{rupees(balances[customer.id] ?? 0)}</span></button>) : <p className="business-muted">{t(search ? "No customer matches this search." : "No customers yet.")}</p>}</div>
-        <details className="business-form-panel inset-form"><summary>{t("Add a customer")} <span>+</span></summary><form className="business-form" onSubmit={(event) => void addCustomer(event)}><label>{t("Name")}<input name="name" required maxLength={120} placeholder={t("Customer name")} /></label><label>{t("Phone (optional)")}<input name="phone" type="tel" maxLength={20} placeholder={t("Add a phone number if available")} /></label><button className="button button-dark" disabled={busy} type="submit">{t("Add a customer")}</button></form></details>
+        <details className="business-form-panel inset-form"><summary>{t("Add a customer")} <span>+</span></summary><form className="business-form" onSubmit={(event) => void addCustomer(event)}><label>{t("Name")}<input name="name" required maxLength={120} placeholder={t("Customer name")} /></label><label>{t("Phone (optional)")}<input name="phone" type="tel" inputMode="numeric" autoComplete="tel-national" maxLength={10} aria-invalid={Boolean(phoneError)} aria-describedby={phoneError ? "khata-phone-error" : undefined} onChange={(event) => setPhoneError(indianMobileError(event.currentTarget.value))} onKeyDown={checkPhoneKey} onPaste={checkPhonePaste} placeholder={t("Add a phone number if available")} />{phoneError && <small id="khata-phone-error" role="alert">{t(phoneError)}</small>}</label><button className="button button-dark" disabled={busy} type="submit">{t("Add a customer")}</button></form></details>
       </section>
       <section className="business-section"><div className="section-heading"><span>{t("CUSTOMER ACCOUNT")}</span><span>{t("LEDGER")} / INR</span></div>
         {selected ? <><div className="ledger-balance"><span>{selected.name.toUpperCase()} / {t("OUTSTANDING")}</span><strong>{rupees(balances[selected.id] ?? 0)}</strong><p>{t((balances[selected.id] ?? 0) < 0 ? "The shop owes this customer." : "The customer owes the shop.")}</p>{reminder && <a className="business-share-link ledger-reminder" href={reminder} target="_blank" rel="noopener noreferrer">{t("Open WhatsApp reminder")} <ExternalLink size={15} aria-hidden="true" /></a>}</div>

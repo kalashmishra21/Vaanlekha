@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { hasDecimalPlaces } from "./precision";
+import { indianMobileSchema } from "./indian-mobile";
 
 const name = z.string().trim().min(1).max(120);
 const note = z.string().trim().max(300);
@@ -14,11 +15,11 @@ export const businessActionSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("product.edit"), id: uuid, name, sku: z.string().trim().max(60).optional(), unit: name, sellingPrice: money, costPrice: money.nullable(), threshold: z.number().int().min(0).max(100000) }).strict(),
   z.object({ kind: z.literal("product.adjust"), id: uuid, delta: z.number().finite().min(-100000).max(100000).refine((n) => n !== 0 && hasDecimalPlaces(n, 3), "Use at most three decimal places"), note: note.optional() }).strict(),
   z.object({ kind: z.literal("product.archive"), id: uuid }).strict(),
-  z.object({ kind: z.literal("customer.create"), name, phone: z.string().trim().min(6).max(20).optional() }).strict(),
+  z.object({ kind: z.literal("customer.create"), name, phone: indianMobileSchema.optional() }).strict(),
   z.object({ kind: z.literal("khata.add"), customerId: uuid, type: z.enum(["gave", "received"]), amount: money.positive(), note: note.optional() }).strict(),
   z.object({ kind: z.literal("sale.record"), items: z.array(z.object({ productId: uuid, quantity: measuredQuantity.max(10000) }).strict()).min(1).max(30), paymentMethod: z.enum(["cash", "upi", "card"]).nullable() }).strict(),
-  z.object({ kind: z.literal("supplier.create"), name, contactName: name.optional(), phone: z.string().trim().min(6).max(20).optional() }).strict(),
-  z.object({ kind: z.literal("supplier.edit"), id: uuid, name, contactName: name.nullable(), phone: z.string().trim().min(6).max(20).nullable() }).strict(),
+  z.object({ kind: z.literal("supplier.create"), name, contactName: name.optional(), phone: indianMobileSchema.optional() }).strict(),
+  z.object({ kind: z.literal("supplier.edit"), id: uuid, name, contactName: name.nullable(), phone: indianMobileSchema.nullable() }).strict(),
   z.object({ kind: z.literal("order.createDraft"), supplierId: uuid, note: note.optional(), items: z.array(z.object({ productId: uuid, quantity: z.number().int().min(1).max(10000), unitCost: money.nullable() }).strict()).min(1).max(30) }).strict(),
   z.object({ kind: z.literal("order.transition"), id: uuid, action: z.enum(["place", "receive", "cancel"]) }).strict(),
 ]);
