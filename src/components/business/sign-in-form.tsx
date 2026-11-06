@@ -6,6 +6,7 @@ import { Eye, EyeOff } from "lucide-react";
 import type { ZodIssue } from "zod";
 import { z } from "zod";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { formatAuthError } from "@/lib/auth/error-message";
 import { signInSchema, signUpSchema } from "@/lib/auth/validation";
 import { useLocale } from "@/components/layout/locale-provider";
 
@@ -23,22 +24,6 @@ function fieldErrors(issues: ZodIssue[]): FieldErrors {
     if (field && !errors[field]) errors[field] = issue.message;
   }
   return errors;
-}
-
-function authMessage(reason: unknown): string {
-  const message = reason instanceof Error ? reason.message : "";
-  const status = reason && typeof reason === "object" && "status" in reason ? Number(reason.status) : 0;
-  if (status >= 500 || /failed to fetch|network(?:request| error)?|ERR_NAME_NOT_RESOLVED|fetch failed/i.test(message)) {
-    return "Can't reach the sign-in service. Check your connection and try again. If it continues, the store service may be unavailable.";
-  }
-  if (/invalid login credentials/i.test(message)) return "Email or password is incorrect.";
-  if (/user already registered/i.test(message)) return "An account with this email already exists. Sign in instead.";
-  if (/email not confirmed/i.test(message)) return "This account is unconfirmed. The owner must confirm it in Supabase.";
-  if (/email address not authorized/i.test(message)) return "Supabase could not send email. Signup without SMTP requires Confirm email off; password recovery still needs email delivery.";
-  if (/email address .* is invalid|email_address_invalid/i.test(message)) return "Enter a valid email address.";
-  if (status === 429 || /rate limit/i.test(message)) return "Too many sign-in or recovery attempts. Wait before trying again.";
-  if (/password should be/i.test(message)) return "Choose a stronger password and try again.";
-  return "We couldn't complete that request. Please try again.";
 }
 
 export function SignInForm({ initialMode = "signin", linkError = false }: { initialMode?: Mode; linkError?: boolean }) {
@@ -87,7 +72,10 @@ export function SignInForm({ initialMode = "signin", linkError = false }: { init
         const { error: authError } = await client.auth.resetPasswordForEmail(email.data, { redirectTo: `${window.location.origin}/auth/callback?next=reset-password` });
         if (authError) throw authError;
         setNotice(t("Password reset needs email delivery from Supabase. Without SMTP, a reset email will not arrive."));
-      } catch (reason) { setError(t(authMessage(reason))); }
+      } catch (reason) {
+        const safeError = formatAuthError(reason);
+        setError(`${t(safeError.message)}${safeError.detail ? ` (${safeError.detail})` : ""}`);
+      }
       finally { setBusy(false); }
       return;
     }
@@ -129,7 +117,8 @@ export function SignInForm({ initialMode = "signin", linkError = false }: { init
         router.replace("/app");
       }
     } catch (reason) {
-      setError(t(authMessage(reason)));
+      const safeError = formatAuthError(reason);
+      setError(`${t(safeError.message)}${safeError.detail ? ` (${safeError.detail})` : ""}`);
     } finally {
       setBusy(false);
     }

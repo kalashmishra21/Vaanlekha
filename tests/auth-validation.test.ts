@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { signInSchema, signUpSchema } from "../src/lib/auth/validation";
 import { profileUpdateSchema } from "../src/lib/auth/profile-schema";
+import { formatAuthError } from "../src/lib/auth/error-message";
+import { getSupabaseConfig, normalizeSupabaseProjectUrl } from "../src/lib/supabase/config";
 
 describe("auth form validation", () => {
   it("normalizes email and full name before account creation", () => {
@@ -36,5 +38,46 @@ describe("profile edit boundary", () => {
     expect(profileUpdateSchema.safeParse({ field: "displayName", value: " " }).success).toBe(false);
     expect(profileUpdateSchema.safeParse({ field: "shopName", value: "Shop\nInjection" }).success).toBe(false);
     expect(profileUpdateSchema.safeParse({ field: "displayName", value: "a".repeat(81) }).success).toBe(false);
+  });
+});
+
+describe("Supabase project URL configuration", () => {
+  it("removes a copied PostgREST path before creating Supabase clients", () => {
+    expect(normalizeSupabaseProjectUrl("https://project.supabase.co/rest/v1")).toBe("https://project.supabase.co");
+    expect(normalizeSupabaseProjectUrl("https://project.supabase.co/rest/v1/")).toBe("https://project.supabase.co");
+    expect(normalizeSupabaseProjectUrl("https://project.supabase.co/")).toBe("https://project.supabase.co");
+  });
+
+  it("returns the project root when the environment contains the REST endpoint", () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co/rest/v1");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY", "public-test-key");
+    try {
+      expect(getSupabaseConfig()).toEqual({ url: "https://project.supabase.co", key: "public-test-key" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+});
+
+describe("safe Supabase Auth errors", () => {
+  it("explains a missing Auth route without exposing the submitted form", () => {
+    const error = formatAuthError(Object.assign(new Error("Not Found"), { status: 404 }));
+    expect(error.message).toContain("project root URL");
+    expect(error.message).toContain("remove /rest/v1");
+    expect(error.message).not.toContain("password");
+  });
+
+  it("points database user-creation failures to the profile trigger", () => {
+    expect(formatAuthError(Object.assign(new Error("Database error saving new user"), { status: 500 })).message)
+      .toContain("profile setup failed");
+  });
+
+  it("shows only a safe status and code for unrecognized Auth errors", () => {
+    expect(formatAuthError(Object.assign(new Error("private message with personal data"), {
+      status: 422, code: "signup_blocked",
+    }))).toEqual({
+      message: "Supabase rejected the request. Check the Supabase Auth settings and try again.",
+      detail: "HTTP 422; signup_blocked",
+    });
   });
 });
