@@ -15,16 +15,16 @@ The Next.js App Router serves the website and API routes. Supabase provides auth
 
 ## Run locally
 
-1. Install Node.js 20.9 or newer and run `npm ci`.
+1. Install Node.js 24.x and run `npm ci`.
 2. Copy `.env.example` to `.env.local` and set the Supabase project URL and public key.
-3. Apply [`supabase/migrations`](supabase/migrations) in order to a new project. Do not reapply migrations already recorded by an existing project. Use an existing verified Supabase account to sign in.
+3. Apply [`supabase/migrations`](supabase/migrations) in order to a new project. Do not reapply migrations already recorded by an existing project. To allow email/password signup without SMTP, turn off **Confirm email** under Supabase Authentication → Sign In / Providers → Email. Supabase then treats every entered address as confirmed without checking ownership; use unique passwords of at least 12 characters. Password reset still requires email delivery.
 4. Run `npm run dev` and open [http://localhost:3100](http://localhost:3100).
 
 `.env.example` documents the full environment. `AI_PROVIDER=mock` and `AI_REASONER=mock` are safe defaults; configure the relevant provider and server-side key to enable live AI services. Never commit `.env.local` or expose provider keys with a `NEXT_PUBLIC_` prefix.
 
 ## Deployment
 
-Vercel hosts the Next.js frontend and API routes; Supabase remains the backend for Auth, data, and storage. Import this repository as a Next.js project, add the required environment variables in Vercel, and add the assigned site origin and `/auth/callback` to Supabase Auth’s URL settings. The app only grants workspace access to verified users.
+Vercel hosts the Next.js frontend and API routes; Supabase remains the backend for Auth, data, and storage. Import this repository as a Next.js project, add the variables from `.env.example` in Vercel, and set the production site URL plus `/auth/callback` in Supabase Auth’s URL settings. Email/password signup creates a session immediately when **Confirm email** is disabled; password reset requires email delivery.
 
 ## Verification
 

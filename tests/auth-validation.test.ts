@@ -15,6 +15,11 @@ describe("auth form validation", () => {
     if (!result.success) expect(result.error.issues[0].path).toEqual(["confirmPassword"]);
   });
 
+  it("requires a 12-character password for new accounts", () => {
+    expect(signUpSchema.safeParse({ fullName: "Shop Owner", email: "owner@example.com", password: "short-pass", confirmPassword: "short-pass" }).success).toBe(false);
+    expect(signUpSchema.safeParse({ fullName: "Shop Owner", email: "owner@example.com", password: "LongPass123!", confirmPassword: "LongPass123!" }).success).toBe(true);
+  });
+
   it("requires only email and password for sign in", () => {
     expect(signInSchema.safeParse({ email: "owner@example.com", password: "demo-password" }).success).toBe(true);
     expect(signInSchema.safeParse({ email: "owner@example.com", password: "" }).success).toBe(false);

@@ -33,10 +33,10 @@ function authMessage(reason: unknown): string {
   }
   if (/invalid login credentials/i.test(message)) return "Email or password is incorrect.";
   if (/user already registered/i.test(message)) return "An account with this email already exists. Sign in instead.";
-  if (/email not confirmed/i.test(message)) return "Please confirm your email before signing in.";
-  if (/email address not authorized/i.test(message)) return "Email delivery is not configured for this address. The project owner must configure SMTP before signup can finish.";
-  if (/email address .* is invalid|email_address_invalid/i.test(message)) return "Use a valid, deliverable email address.";
-  if (status === 429 || /rate limit/i.test(message)) return "Too many email requests. Wait before trying again.";
+  if (/email not confirmed/i.test(message)) return "This account is unconfirmed. The owner must confirm it in Supabase.";
+  if (/email address not authorized/i.test(message)) return "Supabase could not send email. Signup without SMTP requires Confirm email off; password recovery still needs email delivery.";
+  if (/email address .* is invalid|email_address_invalid/i.test(message)) return "Enter a valid email address.";
+  if (status === 429 || /rate limit/i.test(message)) return "Too many sign-in or recovery attempts. Wait before trying again.";
   if (/password should be/i.test(message)) return "Choose a stronger password and try again.";
   return "We couldn't complete that request. Please try again.";
 }
@@ -51,7 +51,6 @@ export function SignInForm({ initialMode = "signin", linkError = false }: { init
   const [error, setError] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [visible, setVisible] = useState({ password: false, confirmPassword: false });
-  const [pendingEmail, setPendingEmail] = useState("");
 
   function switchMode(next: Mode) {
     if (busy || next === mode) return;
@@ -87,7 +86,7 @@ export function SignInForm({ initialMode = "signin", linkError = false }: { init
       try {
         const { error: authError } = await client.auth.resetPasswordForEmail(email.data, { redirectTo: `${window.location.origin}/auth/callback?next=reset-password` });
         if (authError) throw authError;
-        setNotice(t("If an account exists, a password reset link will arrive by email."));
+        setNotice(t("Password reset needs email delivery from Supabase. Without SMTP, a reset email will not arrive."));
       } catch (reason) { setError(t(authMessage(reason))); }
       finally { setBusy(false); }
       return;
@@ -107,49 +106,33 @@ export function SignInForm({ initialMode = "signin", linkError = false }: { init
     setBusy(true);
     try {
       if (mode === "signin") {
-        const { error: authError } = await client.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
+        const { data, error: authError } = await client.auth.signInWithPassword({ email: parsed.data.email, password: parsed.data.password });
         if (authError) throw authError;
-        const { data: account, error: accountError } = await client.auth.getUser();
-        if (accountError || !account.user?.email_confirmed_at) {
-          setPendingEmail(parsed.data.email);
+        if (!data.user?.email_confirmed_at) {
           await client.auth.signOut();
           throw new Error("Email not confirmed");
         }
         router.replace("/app");
-        router.refresh();
       } else {
         const signup = signUpSchema.parse(values);
         const { data, error: authError } = await client.auth.signUp({
           email: signup.email,
           password: signup.password,
-          options: { data: { display_name: signup.fullName }, emailRedirectTo: `${window.location.origin}/auth/callback` },
+          options: { data: { display_name: signup.fullName } },
         });
         if (authError) throw authError;
-        setPendingEmail(signup.email);
-        if (data.session) {
-          await client.auth.signOut();
-          setError(t("Account access is blocked because this project returned a session before email verification. Ask the owner to enable Confirm email."));
-        } else setNotice(t("Check your email for a confirmation link, then return to sign in."));
+        if (!data.session || !data.user?.email_confirmed_at) {
+          if (data.session) await client.auth.signOut();
+          setError(t("Email confirmation is still enabled in Supabase. Turn it off under Authentication → Sign In / Providers → Email to allow signup without SMTP."));
+          return;
+        }
+        router.replace("/app");
       }
     } catch (reason) {
       setError(t(authMessage(reason)));
     } finally {
       setBusy(false);
     }
-  }
-
-  async function resendConfirmation() {
-    if (!pendingEmail || busy) return;
-    const client = createSupabaseBrowserClient();
-    if (!client) { setError(t("Email delivery is unavailable.")); return; }
-    setBusy(true); setError(""); setNotice("");
-    try {
-      const { error: authError } = await client.auth.resend({ type: "signup", email: pendingEmail,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` } });
-      if (authError) throw authError;
-      setNotice(t("If this address has an unverified account, a new confirmation link will arrive by email."));
-    } catch (reason) { setError(t(authMessage(reason))); }
-    finally { setBusy(false); }
   }
 
   function field(name: Field, label: string, input: ReactNode) {
@@ -193,10 +176,9 @@ export function SignInForm({ initialMode = "signin", linkError = false }: { init
     </form>
     {mode === "signin" && <button className="auth-text-action" type="button" onClick={() => switchMode("reset")}>{t("Forgot password?")}</button>}
     {mode === "reset" && <button className="auth-text-action" type="button" onClick={() => switchMode("signin")}>{t("Back to sign in")}</button>}
-    {pendingEmail && <button className="auth-text-action" type="button" disabled={busy} onClick={() => void resendConfirmation()}>{t("Resend confirmation email")}</button>}
-    {linkError && <p className="form-error" role="alert">{t("This link is invalid or expired. Request a new confirmation or password reset email.")}</p>}
+    {linkError && <p className="form-error" role="alert">{t("This link is invalid or expired. Request a new password reset email.")}</p>}
     {notice && <p className="form-notice" role="status">{notice}</p>}
     {error && <p className="form-error" role="alert">{error}</p>}
-    <p className="auth-footnote">{t("Your shop records are private to your account. Verify your email before accessing the workspace.")}</p>
+    <p className="auth-footnote">{t("Your shop records are private to your account. Use a strong, unique password. Password recovery needs email delivery.")}</p>
   </>;
 }
