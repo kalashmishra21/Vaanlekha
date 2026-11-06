@@ -24,7 +24,7 @@ The Next.js App Router serves the website and API routes. Supabase provides auth
 
 ## Deployment
 
-Vercel hosts the Next.js frontend and API routes; Supabase remains the backend for Auth, data, and storage. Import this repository as a Next.js project, add the variables from `.env.example` in Vercel, and set the production site URL plus `/auth/callback` in Supabase Auth’s URL settings. Email/password signup creates a session immediately when **Confirm email** is disabled; password reset requires email delivery.
+Vercel hosts the Next.js frontend, API routes, and a daily UTC Supabase activity check; Supabase remains the backend for Auth, data, and storage. Import this repository as a Next.js project, set the Vercel Node.js version to **24.x**, add the variables from `.env.example`, and set the production site URL plus `/auth/callback` in Supabase Auth’s URL settings. Set `CRON_SECRET` as a Vercel Production Secret with at least 16 random characters. Remove any unsupported `NPM_CONFIG_CACHE_DIR` variable from Vercel project or team settings; npm's supported environment key for a custom cache path is `NPM_CONFIG_CACHE`. The cron performs a read-only `HEAD` request against `public.shops` using the public anon key; existing RLS still applies, and no shop rows or business data are returned. This reduces inactivity risk but does not guarantee that a Supabase Free project will remain active. Email/password signup creates a session immediately when **Confirm email** is disabled; password reset requires email delivery.
 
 ## Verification
 
