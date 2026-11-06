@@ -11,10 +11,13 @@ import { enforceShopRateLimit } from "@/server/security/rate-limit";
 import { ProviderRequestError } from "@/lib/ai/provider-http";
 import { AssistantConversationRepository } from "@/server/data/assistant-conversations";
 import { missingIdempotencyKey, readIdempotencyKey } from "@/server/security/idempotency";
+import { isImageUploadWithinLimit } from "@/lib/assistant/attachment-limits";
 import type { AssistantResponse } from "@/lib/business/assistant-response";
 
 const textSchema = z.string().max(6000);
 const imageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+export const maxDuration = 60;
 
 function matchesSignature(mimeType: string, bytes: Uint8Array): mimeType is VisionImage["mimeType"] {
   if (mimeType === "image/png") return bytes.length > 8 && [137, 80, 78, 71, 13, 10, 26, 10].every((part, index) => bytes[index] === part);
@@ -35,8 +38,9 @@ export async function POST(request: Request) {
   const textResult = textSchema.safeParse(form.get("extractedText") ?? "");
   if (!textResult.success) return Response.json({ error: "The extracted document is too long." }, { status: 413 });
   const files = form.getAll("images");
-  if (files.length > 3 || files.some((file) => !(file instanceof File) || !imageTypes.has(file.type) || file.size > 5_000_000 || file.size === 0)) {
-    return Response.json({ error: "Attach up to three JPG, PNG or WebP images, each under 5 MB." }, { status: 413 });
+  const validImages = files.every((file): file is File => file instanceof File && imageTypes.has(file.type));
+  if (!validImages || !isImageUploadWithinLimit(files as File[])) {
+    return Response.json({ error: "Attach up to three JPG, PNG or WebP images totaling no more than 4 MB." }, { status: 413 });
   }
   if (!textResult.data.trim() && !files.length) return Response.json({ error: "The attachment contains no readable list." }, { status: 422 });
   const conversationId = z.uuid().safeParse(form.get("conversationId"));

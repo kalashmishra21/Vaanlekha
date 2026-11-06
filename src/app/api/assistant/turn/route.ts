@@ -27,6 +27,8 @@ const requestSchema = z.object({
   conversationId: z.uuid().optional(),
 }).strict();
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const trace = process.env.AI_REASONER_TRACE === "1";
   const started = performance.now();

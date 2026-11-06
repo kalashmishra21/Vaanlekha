@@ -8,6 +8,7 @@ import { z } from "zod";
 import { assistantResponseSchema, type AssistantResponse } from "@/lib/business/assistant-response";
 import { pendingClarificationSchema, type recentTurnSchema } from "@/lib/ai/types/tool-call";
 import type { ShoppingDraft } from "@/lib/assistant/shopping-list";
+import { isImageUploadWithinLimit, MAX_ATTACHMENT_SOURCE_BYTES, MAX_IMAGE_UPLOAD_BYTES } from "@/lib/assistant/attachment-limits";
 import { startVoiceRecording, type VoiceRecording } from "@/lib/ai/capture";
 import type { VoiceState } from "@/features/assistant/voice-states";
 import { VoiceStateIndicator } from "./voice-state-indicator";
@@ -390,6 +391,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       setVoiceState("reasoning");
       const { prepareShoppingAttachment } = await import("@/lib/assistant/read-attachment");
       const prepared = await prepareShoppingAttachment(selected.file);
+      if (!isImageUploadWithinLimit(prepared.images)) throw new Error("These image pages exceed the 4 MB upload limit. Use a smaller image or split the PDF.");
       const form = new FormData();
       form.set("extractedText", prepared.extractedText);
       if (conversationId) form.set("conversationId", conversationId);
@@ -435,8 +437,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   function chooseFile(file: File | undefined) {
     if (!file) return;
-    if (file.size > 5_000_000 || file.size === 0 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type)) {
-      setVoiceNotice("Choose a JPG, PNG, WebP or PDF file under 5 MB.");
+    const isPdf = file.type === "application/pdf";
+    const fileLimit = isPdf ? MAX_ATTACHMENT_SOURCE_BYTES : MAX_IMAGE_UPLOAD_BYTES;
+    if (file.size > fileLimit || file.size === 0 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type)) {
+      setVoiceNotice(t("Choose an image under 4 MB or a PDF under 5 MB."));
       return;
     }
     if (attachment) URL.revokeObjectURL(attachment.preview.url);
@@ -538,7 +542,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); fileInput.current?.click(); }}><ImagePlus size={18} aria-hidden="true" /> {t("Upload photo")}</button>
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); pdfInput.current?.click(); }}><FileText size={18} aria-hidden="true" /> {t("Upload PDF/document")}</button>
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); cameraInput.current?.click(); }}><Camera size={18} aria-hidden="true" /> {t("Take photo")}</button>
-                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("JPG, PNG, WebP or PDF, up to 5 MB. Files are not saved by Vaanlekha. Images go to the vision provider. Lists remain drafts until you confirm a sale.")}</p></details>
+                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("Images up to 4 MB; PDFs up to 5 MB. Files are not saved by Vaanlekha. Images go to the vision provider. Lists remain drafts until you confirm a sale.")}</p></details>
               </div>}
             </div>
             <label className="assistant-language-control"><span className="sr-only">{t("Voice language")}</span><select aria-label={t("Voice language")} value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value as typeof voiceLanguage)} disabled={busy || voiceState === "listening"}><option value="hi-IN">हिंदी</option><option value="en-IN">English</option></select></label>

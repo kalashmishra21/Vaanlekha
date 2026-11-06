@@ -1,8 +1,13 @@
+import { MAX_ATTACHMENT_SOURCE_BYTES, MAX_IMAGE_UPLOAD_BYTES } from "./attachment-limits";
+
 export type PreparedAttachment = { extractedText: string; images: File[] };
 
 export async function prepareShoppingAttachment(file: File): Promise<PreparedAttachment> {
-  if (file.size === 0 || file.size > 5_000_000) throw new Error("Choose a file under 5 MB.");
-  if (["image/jpeg", "image/png", "image/webp"].includes(file.type)) return { extractedText: "", images: [file] };
+  if (file.size === 0 || file.size > MAX_ATTACHMENT_SOURCE_BYTES) throw new Error("Choose a file under 5 MB.");
+  if (["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) throw new Error("Choose an image under 4 MB.");
+    return { extractedText: "", images: [file] };
+  }
   if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) {
     throw new Error("Choose a JPG, PNG, WebP or PDF file.");
   }

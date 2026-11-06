@@ -5,6 +5,8 @@ import { getShopContext } from "@/server/data/context";
 import { enforceShopRateLimit } from "@/server/security/rate-limit";
 import { ProviderRequestError } from "@/lib/ai/provider-http";
 
+export const maxDuration = 60;
+
 export async function POST(request: Request) {
   const context = await getShopContext();
   if (context.kind === "signed-out") return Response.json({ error: "Sign in to use voice." }, { status: 401 });
