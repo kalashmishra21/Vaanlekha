@@ -120,8 +120,8 @@ describe("private shop image upload", () => {
     testMocks.upload.mockResolvedValueOnce({ error: { statusCode: "403", message: "private owner details" } });
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { POST } = await import("../src/app/api/profile/logo/route");
-    expect((await POST(uploadRequest("image/png"))).status).toBe(503);
-    expect(warning).toHaveBeenCalledWith("Shop image upload failed", { statusCode: "403" });
+    expect((await POST(uploadRequest("image/png"))).status).toBe(403);
+    expect(warning).toHaveBeenCalledWith("Shop image operation failed", expect.objectContaining({ stage: "storage_upload", statusCode: 403 }));
     expect(JSON.stringify(warning.mock.calls)).not.toContain("private owner details");
   });
 
@@ -130,7 +130,38 @@ describe("private shop image upload", () => {
     const { POST } = await import("../src/app/api/profile/logo/route");
     const response = await POST(uploadRequest("image/png"));
     expect(response.status).toBe(503);
-    await expect(response.json()).resolves.toEqual({ error: "The image was saved, but its private preview could not be loaded. Please retry." });
+    await expect(response.json()).resolves.toEqual({ error: "The image was saved privately, but its preview could not be loaded. Refresh the profile." });
+  });
+
+  it("reports the storage HTTP status without logging provider messages or shop data", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    testMocks.upload.mockResolvedValueOnce({ error: { statusCode: "403", code: "Unauthorized", message: "private bucket internal detail" } });
+    const { POST } = await import("../src/app/api/profile/logo/route");
+    const response = await POST(uploadRequest("image/png"));
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "Secure image storage denied this upload. Refresh your sign-in and try again." });
+    expect(warn).toHaveBeenCalledWith("Shop image operation failed", expect.objectContaining({ stage: "storage_upload", statusCode: 403, errorCode: "Unauthorized" }));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("private bucket internal detail");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(userId);
+  });
+
+  it("re-issues a signed private URL from the persisted owner shop path after a new profile load", async () => {
+    const signedPath = `${shopId}/logo`;
+    const dataClient = {
+      auth: { getUser: async () => ({ data: { user: { email: "owner@example.test", user_metadata: { display_name: "Owner" } } }, error: null }) },
+      from: (table: string) => table === "profiles"
+        ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { display_name: "Owner" }, error: null }) }) }) }
+        : { select: () => ({ eq: () => ({ eq: () => ({ single: async () => ({ data: { id: shopId, name: "Test shop", phone: null, logo_path: signedPath }, error: null }) }) }) }) },
+      storage: { from: vi.fn(() => ({ createSignedUrl: testMocks.signedUrl })) },
+    };
+    testMocks.signedUrl.mockResolvedValueOnce({ data: { signedUrl: "https://storage.example/private-signed-url" }, error: null });
+    testMocks.getShopContext.mockResolvedValueOnce({ kind: "ready", client: dataClient, userId, shop: { id: shopId, name: "Test shop" } });
+    const { GET } = await import("../src/app/api/profile/route");
+    const response = await GET();
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ shop: { logoUrl: "https://storage.example/private-signed-url" } });
+    expect(dataClient.storage.from).toHaveBeenCalledWith("shop-logos");
+    expect(testMocks.signedUrl).toHaveBeenCalledWith(signedPath, 3600);
   });
 
   it("does not upload for signed-out users or cross-origin requests", async () => {

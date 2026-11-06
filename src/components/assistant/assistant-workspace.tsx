@@ -9,8 +9,9 @@ import { assistantResponseSchema, type AssistantResponse } from "@/lib/business/
 import { pendingClarificationSchema, type recentTurnSchema } from "@/lib/ai/types/tool-call";
 import type { ShoppingDraft } from "@/lib/assistant/shopping-list";
 import { isImageUploadWithinLimit, MAX_ATTACHMENT_SOURCE_BYTES, MAX_IMAGE_UPLOAD_BYTES } from "@/lib/assistant/attachment-limits";
-import { startVoiceRecording, type VoiceRecording } from "@/lib/ai/capture";
-import type { VoiceState } from "@/features/assistant/voice-states";
+import { microphoneErrorMessage, startVoiceRecording, type VoiceRecording } from "@/lib/ai/capture";
+import { browserSpeechFactory, browserSpeechErrorMessage, startBrowserSpeechRecognition, type BrowserSpeechSession } from "@/lib/ai/browser-speech";
+import { VoiceSubmissionGate, type VoiceState } from "@/features/assistant/voice-states";
 import { VoiceStateIndicator } from "./voice-state-indicator";
 import { ShoppingListResult } from "./shopping-list-result";
 import { useLocale } from "@/components/layout/locale-provider";
@@ -18,7 +19,7 @@ import { useLocale } from "@/components/layout/locale-provider";
 type AttachmentPreview = { name: string; kind: "image" | "pdf"; url: string };
 type Message = { id: number; persistedId?: string; role: "user" | "assistant"; text: string; attachment?: AttachmentPreview; result?: AssistantResponse; failed?: boolean };
 type ProviderMode = "mock" | "gnani";
-type ReasonerMode = "mock" | "openrouter" | "gemini";
+type ReasonerMode = "mock" | "gemini";
 type RecentTurn = z.infer<typeof recentTurnSchema>;
 type ConversationSummary = { id: string; title: string; updated_at: string };
 const threadListSchema = z.object({ conversations: z.array(z.object({ id: z.uuid(), title: z.string(), updated_at: z.string() })) });
@@ -43,7 +44,17 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 }) {
   const router = useRouter();
   const { locale, t } = useLocale();
-  const recording = useRef<VoiceRecording | null>(null);
+  const recording = useRef<{ sessionId: number; source: VoiceRecording } | null>(null);
+  const browserRecording = useRef<{ sessionId: number; source: BrowserSpeechSession } | null>(null);
+  const permissionAbort = useRef<AbortController | null>(null);
+  const transcriptionAbort = useRef<AbortController | null>(null);
+  const voiceSessionCounter = useRef(0);
+  const activeVoiceSessionId = useRef<number | null>(null);
+  const voiceSubmissionGate = useRef(new VoiceSubmissionGate());
+  const voiceStarting = useRef(false);
+  const voiceTranscribing = useRef(false);
+  const promptInFlight = useRef(false);
+  const forceBrowserFallback = useRef(false);
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -73,12 +84,19 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceLanguage, setVoiceLanguage] = useState<"hi-IN" | "en-IN">(locale === "hi" ? "hi-IN" : "en-IN");
   const [voiceNotice, setVoiceNotice] = useState("");
+  const [browserSpeechAvailable, setBrowserSpeechAvailable] = useState(false);
+  const [offerBrowserFallback, setOfferBrowserFallback] = useState(false);
   const [speechUrl, setSpeechUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [workingOn, setWorkingOn] = useState<"request" | "attachment" | "voice">("request");
   const [lastPrompt, setLastPrompt] = useState("");
   const [retryable, setRetryable] = useState(false);
   const [action, setAction] = useState<AssistantResponse | null>(null);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setBrowserSpeechAvailable(Boolean(browserSpeechFactory())));
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     const syncVoiceLanguage = (event: Event) => {
@@ -176,7 +194,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   useEffect(() => () => {
     if (recordingTimer.current) clearTimeout(recordingTimer.current);
-    void recording.current?.cancel();
+    permissionAbort.current?.abort();
+    transcriptionAbort.current?.abort();
+    void recording.current?.source.cancel();
+    browserRecording.current?.source.cancel();
     player.current?.pause();
     objectUrls.current.forEach((url) => URL.revokeObjectURL(url));
   }, []);
@@ -317,16 +338,18 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       setVoiceState("speaking");
       const audio = new Audio(url);
       player.current = audio;
-      audio.onended = () => setVoiceState(turn.state === "failed" ? "error" : "idle");
+      audio.onended = () => setVoiceState(turn.state === "failed" ? "error" : "completed");
       await audio.play().catch(() => setVoiceNotice("Tap the audio player to hear the reply."));
     } else {
       if (turn.speechUnavailable) setVoiceNotice("Spoken reply is unavailable. The store result is shown in text.");
-      setVoiceState(turn.state === "failed" ? "error" : "idle");
+      setVoiceState(turn.state === "failed" ? "error" : "completed");
     }
   }
 
-  async function processPrompt(text: string, speak: boolean, retry = false) {
+  async function processPrompt(text: string, speak: boolean, retry = false, fromVoice = false) {
+    if (promptInFlight.current || (!fromVoice && (voiceStarting.current || voiceTranscribing.current || recording.current || browserRecording.current))) return;
     if (connected && (!conversationId || historyError)) { setHistoryError("Choose an available conversation before sending a store request."); return; }
+    promptInFlight.current = true;
     setBusy(true);
     setWorkingOn(speak ? "voice" : "request");
     setLastPrompt(text);
@@ -360,15 +383,16 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       setRetryable(/nothing was changed|no list or sale was created/i.test(message));
       addMessage({ role: "assistant", text: message, failed: true });
     } finally {
+      promptInFlight.current = false;
       setBusy(false);
     }
   }
 
   async function runPrompt(rawText: string, sampleVoice = false, retry = false) {
     const text = rawText.trim();
-    if (!text || busy || voiceState === "listening") return;
+    if (!text || busy || promptInFlight.current || voiceStarting.current || voiceTranscribing.current || recording.current || browserRecording.current) return;
     if (sampleVoice) {
-      setVoiceState("listening");
+      setVoiceState("processing_audio");
       await pause(350);
       setVoiceState("transcribing");
       await pause(350);
@@ -450,19 +474,30 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     setVoiceNotice("");
   }
 
-  async function stopRecording() {
-    const current = recording.current;
-    if (!current) return;
-    recording.current = null;
+  function clearRecordingTimer() {
     if (recordingTimer.current) clearTimeout(recordingTimer.current);
-    setVoiceState("transcribing");
+    recordingTimer.current = null;
+  }
+
+  async function stopRecording(expectedSessionId?: number) {
+    const current = recording.current;
+    if (!current || (expectedSessionId !== undefined && current.sessionId !== expectedSessionId)
+      || !voiceSubmissionGate.current.claim(current.sessionId)) return;
+    recording.current = null;
+    clearRecordingTimer();
+    voiceTranscribing.current = true;
+    setVoiceState("processing_audio");
     setBusy(true);
+    const controller = new AbortController();
+    transcriptionAbort.current = controller;
     try {
-      const bytes = await current.stop();
+      const bytes = await current.source.stop();
+      if (controller.signal.aborted) throw new DOMException("Transcription was cancelled.", "AbortError");
       const form = new FormData();
       form.set("audio", new File([new Uint8Array(bytes)], "request.wav", { type: "audio/wav" }));
       form.set("language", voiceLanguage);
-      const response = await fetch("/api/voice/transcribe", { method: "POST", body: form });
+      setVoiceState("transcribing");
+      const response = await fetch("/api/voice/transcribe", { method: "POST", body: form, signal: controller.signal });
       const raw: unknown = await response.json();
       const parsed = transcriptSchema.safeParse(raw);
       if (!response.ok) {
@@ -472,27 +507,152 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
         throw new Error(`${safeError.success ? safeError.data.error : "Transcription failed. No store action was taken."}${wait}`);
       }
       if (!parsed.success) throw new Error("Transcription failed. No store action was taken; please try again.");
-      await processPrompt(parsed.data.text, true);
+      setVoiceNotice("");
+      transcriptionAbort.current = null;
+      await processPrompt(parsed.data.text, true, false, true);
     } catch (reason) {
-      setVoiceState("error");
-      setVoiceNotice(reason instanceof Error ? reason.message : "The recording could not be processed.");
+      const cancelled = controller.signal.aborted || reason instanceof Error && reason.name === "AbortError";
+      if (activeVoiceSessionId.current === current.sessionId) {
+        setVoiceState(cancelled ? "cancelled" : "error");
+        setVoiceNotice(cancelled ? "The recording was cancelled. No store action was sent."
+          : reason instanceof Error ? reason.message : "The recording could not be processed.");
+        if (!cancelled && browserSpeechAvailable) setOfferBrowserFallback(true);
+      }
     } finally {
-      setBusy(false);
+      transcriptionAbort.current = null;
+      if (activeVoiceSessionId.current === current.sessionId) {
+        voiceTranscribing.current = false;
+        setBusy(false);
+      }
     }
   }
 
-  async function toggleVoice() {
-    if (providerMode === "mock") { await runPrompt(examples[0], true); return; }
-    if (recording.current) { await stopRecording(); return; }
-    if (busy || !voiceAvailable) return;
-    setVoiceNotice("");
-    try {
-      recording.current = await startVoiceRecording();
-      setVoiceState("listening");
-      recordingTimer.current = setTimeout(() => void stopRecording(), 12_000);
-    } catch {
+  function startBrowserFallback() {
+    const factory = browserSpeechFactory();
+    if (!factory) {
+      setVoiceState("unsupported");
+      setVoiceNotice(browserSpeechErrorMessage("unsupported"));
+      return;
+    }
+    setVoiceState("requesting_permission");
+    setVoiceNotice("Using browser speech recognition. Your browser may process this audio.");
+    setOfferBrowserFallback(false);
+    const sessionId = ++voiceSessionCounter.current;
+    activeVoiceSessionId.current = sessionId;
+    let source: BrowserSpeechSession;
+    try { source = startBrowserSpeechRecognition(factory, voiceLanguage, (transcript) => {
+      if (activeVoiceSessionId.current !== sessionId) return;
+      if (!voiceSubmissionGate.current.claim(sessionId)) return;
+      browserRecording.current = null;
+      clearRecordingTimer();
+      voiceTranscribing.current = true;
+      setVoiceNotice("Recognized transcript received. Vaani is checking it before any store action.");
+      void processPrompt(transcript, true, false, true).finally(() => {
+        if (activeVoiceSessionId.current === sessionId) {
+          voiceTranscribing.current = false;
+          setBusy(false);
+        }
+      });
+    }, (message) => {
+      if (activeVoiceSessionId.current !== sessionId) return;
+      if (!voiceSubmissionGate.current.claim(sessionId)) return;
+      browserRecording.current = null;
+      clearRecordingTimer();
+      setVoiceState(message.includes("cancelled") ? "cancelled" : "error");
+      setVoiceNotice(message);
+    }, () => {
+      if (activeVoiceSessionId.current === sessionId) setVoiceState("recording");
+    }); } catch {
+      activeVoiceSessionId.current = null;
       setVoiceState("error");
-      setVoiceNotice("Microphone access was unavailable. Check browser permission and try again.");
+      setVoiceNotice(browserSpeechErrorMessage("unknown"));
+      return;
+    }
+    browserRecording.current = { sessionId, source };
+    recordingTimer.current = setTimeout(() => {
+      if (browserRecording.current?.sessionId !== sessionId) return;
+      voiceTranscribing.current = true;
+      setVoiceState("transcribing");
+      source.stop();
+    }, 15_000);
+  }
+
+  function stopBrowserRecording(expectedSessionId?: number) {
+    const current = browserRecording.current;
+    if (!current || (expectedSessionId !== undefined && current.sessionId !== expectedSessionId)) return;
+    voiceTranscribing.current = true;
+    setVoiceState("transcribing");
+    clearRecordingTimer();
+    current.source.stop();
+  }
+
+  function cancelVoice() {
+    clearRecordingTimer();
+    if (permissionAbort.current) {
+      permissionAbort.current.abort();
+      permissionAbort.current = null;
+    }
+    if (recording.current) {
+      const current = recording.current;
+      recording.current = null;
+      void current.source.cancel();
+    }
+    if (browserRecording.current) {
+      browserRecording.current.source.cancel();
+      browserRecording.current = null;
+    }
+    transcriptionAbort.current?.abort();
+    activeVoiceSessionId.current = null;
+    voiceStarting.current = false;
+    voiceTranscribing.current = false;
+    setBusy(false);
+    setVoiceState("cancelled");
+    setVoiceNotice("The recording was cancelled. No store action was sent.");
+  }
+
+  async function toggleVoice(useBrowser = false) {
+    if (providerMode === "mock") { await runPrompt(examples[0], true); return; }
+    if (voiceState === "requesting_permission") { cancelVoice(); return; }
+    if (recording.current) { await stopRecording(recording.current.sessionId); return; }
+    if (browserRecording.current) { stopBrowserRecording(browserRecording.current.sessionId); return; }
+    if (busy || promptInFlight.current || voiceStarting.current || voiceTranscribing.current) return;
+    setVoiceNotice("");
+    if (useBrowser || forceBrowserFallback.current || !voiceAvailable) {
+      forceBrowserFallback.current = false;
+      if (!browserSpeechAvailable) {
+        setVoiceState("unsupported");
+        setVoiceNotice(browserSpeechErrorMessage("unsupported"));
+        return;
+      }
+      setVoiceState("requesting_permission");
+      startBrowserFallback();
+      return;
+    }
+
+    voiceStarting.current = true;
+    const controller = new AbortController();
+    permissionAbort.current = controller;
+    setVoiceState("requesting_permission");
+    setVoiceNotice("Allow microphone access. Recording will not start until permission is granted.");
+    try {
+      const source = await startVoiceRecording(controller.signal);
+      if (controller.signal.aborted) { await source.cancel(); return; }
+      const sessionId = ++voiceSessionCounter.current;
+      activeVoiceSessionId.current = sessionId;
+      recording.current = { sessionId, source };
+      setVoiceState("recording");
+      setVoiceNotice("Recording. Tap Stop to process this request or Cancel to discard it.");
+      recordingTimer.current = setTimeout(() => void stopRecording(sessionId), 12_000);
+    } catch (reason) {
+      const cancelled = controller.signal.aborted || reason instanceof Error && reason.name === "AbortError";
+      if (activeVoiceSessionId.current === null || !cancelled) {
+        setVoiceState(cancelled ? "cancelled" : "error");
+        setVoiceNotice(cancelled ? "Microphone setup was cancelled. No recording was sent." : microphoneErrorMessage(reason));
+        if (!cancelled && browserSpeechAvailable) setOfferBrowserFallback(true);
+      }
+    } finally {
+      voiceStarting.current = false;
+      if (permissionAbort.current === controller) permissionAbort.current = null;
     }
   }
 
@@ -504,6 +664,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   const realVoice = providerMode === "gnani";
   const realReasoning = reasonerMode !== "mock";
+  const voiceCaptureActive = voiceState === "requesting_permission" || voiceState === "recording";
+  const voiceProcessingActive = voiceState === "processing_audio" || voiceState === "transcribing";
+  const voiceInputLocked = voiceCaptureActive || voiceProcessingActive;
+  const canUseVoice = providerMode === "mock" || voiceAvailable || browserSpeechAvailable;
   return <div className="assistant-page assistant-copilot">
     <header className="assistant-heading"><div><h1>{t("Ask Vaani")}<span>.</span></h1><p>{t("Run your store in your own words. Speak, type, or check a shopping list.")}</p></div><span className="assistant-mode-badge"><span /> {t(connected ? "STORE CONNECTED" : "PREVIEW MODE")} · {t(realReasoning ? reasonerMode === "gemini" ? "GEMINI + OPENROUTER FALLBACK" : "OPENROUTER + LOCAL PARSER" : "MOCK REASONING")} · {t(realVoice ? "GNANI VOICE" : "SAMPLE VOICE")}</span>{!expanded && <button className="assistant-drawer-close" type="button" onClick={onClose} aria-label={t("Close Vaani assistant")}><X size={19} /></button>}</header>
     <div className="assistant-conversation-toolbar"><button type="button" onClick={() => setHistoryOpen((value) => !value)} aria-expanded={historyOpen} aria-controls="assistant-thread-history"><History size={17} /> {t("History")} <span>{conversations.length}</span></button><button type="button" onClick={() => void startConversation()} disabled={busy || !connected}><Plus size={17} /> {t("New chat")}</button><span>{conversationId ? conversations.find((item) => item.id === conversationId)?.title ?? t("Conversation") : historyLoading ? t("Loading history…") : t("History unavailable")}</span></div>
@@ -528,15 +692,15 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
             {message.result?.state === "clarify" && <span className="clarification-hint">{t("Waiting for your reply · nothing has changed yet")}</span>}
           </div></article>)}
           {messages.length === 0 && <div className="assistant-starters"><span>{t("OR START WITH A REQUEST")}</span><div>{examples.map((example) => <button key={example} type="button" onClick={() => void runPrompt(example)} disabled={busy}>{t(example)}<ArrowUp size={14} aria-hidden="true" /></button>)}</div></div>}
-          {busy && <div className="conversation-processing" role="status"><span className="processing-dot" /> {t(voiceState === "transcribing" ? "Transcribing with Prisma" : workingOn === "attachment" ? "Reading your list; nothing has been changed" : "Checking request and store")}</div>}
+          {busy && <div className="conversation-processing" role="status"><span className="processing-dot" /> {t(voiceState === "processing_audio" ? "Preparing voice recording" : voiceState === "transcribing" ? "Transcribing speech" : workingOn === "attachment" ? "Reading your list; nothing has been changed" : "Checking request and store")}</div>}
         </div>
         <div className="conversation-bottom">
           {pending && <div className="pending-clarification" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{pendingLabel()} {t("Nothing has changed yet.")}</span><button type="button" onClick={() => void runPrompt("cancel")} disabled={busy} aria-label={t("Cancel the pending store request")}><X size={16} aria-hidden="true" /></button></div>}
           {attachment && <div className="composer-attachment">{attachment.preview.kind === "image" ? <Image unoptimized src={attachment.preview.url} alt={`${t("Preview of")} ${attachment.preview.name}`} width={48} height={48} /> : <FileText size={24} aria-hidden="true" />}<span><strong>{attachment.preview.name}</strong><small>{t("Draft check only · no stock change")}</small></span><button type="button" onClick={() => { URL.revokeObjectURL(attachment.preview.url); setAttachment(null); }} aria-label={t("Remove attachment")}><X size={17} aria-hidden="true" /></button></div>}
           {retryable && lastPrompt && <button className="assistant-retry" type="button" onClick={() => void runPrompt(lastPrompt, false, true)} disabled={busy}><RotateCcw size={15} aria-hidden="true" /> {t("Retry safe request")}</button>}
-          <form className="assistant-composer" onSubmit={submit}><label htmlFor="assistant-input" className="sr-only">{t("Ask Vaani")}</label><input id="assistant-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={pendingPlaceholder()} maxLength={500} disabled={busy || voiceState === "listening"} />
+          <form className="assistant-composer" onSubmit={submit}><label htmlFor="assistant-input" className="sr-only">{t("Ask Vaani")}</label><input id="assistant-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={pendingPlaceholder()} maxLength={500} disabled={busy || voiceInputLocked} />
             <div className="assistant-attachment-control" ref={attachmentMenu}>
-              <button ref={attachmentTrigger} type="button" className="assistant-attach" onClick={() => setAttachmentMenuOpen((value) => !value)} disabled={busy || voiceState === "listening"} aria-label={t("Add attachment")} aria-expanded={attachmentMenuOpen} aria-controls="assistant-attachment-menu"><Paperclip size={20} aria-hidden="true" /></button>
+              <button ref={attachmentTrigger} type="button" className="assistant-attach" onClick={() => setAttachmentMenuOpen((value) => !value)} disabled={busy || voiceInputLocked} aria-label={t("Add attachment")} aria-expanded={attachmentMenuOpen} aria-controls="assistant-attachment-menu"><Paperclip size={20} aria-hidden="true" /></button>
               {attachmentMenuOpen && <div id="assistant-attachment-menu" className="assistant-attachment-menu">
                 <strong>{t("Add a shopping list")}</strong>
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); fileInput.current?.click(); }}><ImagePlus size={18} aria-hidden="true" /> {t("Upload photo")}</button>
@@ -545,13 +709,16 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
                 <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("Images up to 4 MB; PDFs up to 5 MB. Files are not saved by Vaanlekha. Images go to the vision provider. Lists remain drafts until you confirm a sale.")}</p></details>
               </div>}
             </div>
-            <label className="assistant-language-control"><span className="sr-only">{t("Voice language")}</span><select aria-label={t("Voice language")} value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value as typeof voiceLanguage)} disabled={busy || voiceState === "listening"}><option value="hi-IN">हिंदी</option><option value="en-IN">English</option></select></label>
-            <button className="assistant-mic" type="button" disabled={busy || (realVoice && !voiceAvailable)} aria-label={t(realVoice ? voiceState === "listening" ? "Stop recording" : "Start recording" : "Play sample voice flow")} onClick={() => void toggleVoice()}>{realVoice && voiceState === "listening" ? <Square size={17} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}<span>{t(realVoice ? voiceState === "listening" ? "Stop" : "Speak" : "Sample")}</span></button>
-            <button className="assistant-send" type="submit" disabled={busy || historyLoading || Boolean(historyError) || (connected && !conversationId) || voiceState === "listening" || (!input.trim() && !attachment)} aria-label={t("Send message")}><ArrowUp size={19} aria-hidden="true" /></button></form>
+            <label className="assistant-language-control"><span className="sr-only">{t("Voice language")}</span><select aria-label={t("Voice language")} value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value as typeof voiceLanguage)} disabled={busy || voiceInputLocked}><option value="hi-IN">हिंदी / Hinglish</option><option value="en-IN">English / Hinglish</option></select></label>
+            <button className="assistant-mic" type="button" disabled={busy || !canUseVoice} aria-label={t(providerMode === "mock" ? "Play sample voice flow" : voiceState === "requesting_permission" ? "Cancel microphone permission request" : voiceState === "recording" ? "Stop recording" : "Start recording")} onClick={() => void toggleVoice()}>{voiceState === "recording" ? <Square size={17} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}<span>{t(providerMode === "mock" ? "Sample" : voiceState === "requesting_permission" ? "Cancel" : voiceState === "recording" ? "Stop" : "Speak")}</span></button>
+            {(voiceCaptureActive || voiceProcessingActive) && <button className="assistant-voice-cancel" type="button" onClick={cancelVoice} aria-label={t("Cancel voice recording")}><X size={18} aria-hidden="true" /></button>}
+            <button className="assistant-send" type="submit" disabled={busy || historyLoading || Boolean(historyError) || (connected && !conversationId) || voiceInputLocked || (!input.trim() && !attachment)} aria-label={t("Send message")}><ArrowUp size={19} aria-hidden="true" /></button></form>
           <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           <input ref={pdfInput} type="file" accept="application/pdf,.pdf" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           {voiceNotice && <p className="composer-voice-notice" role="status">{t(voiceNotice)}</p>}
+          {realVoice && !canUseVoice && <p className="composer-voice-notice" role="status">{t("Microphone is unavailable here. Add the server-side Gnani key or use a supported browser speech service; typing is always available.")}</p>}
+          {offerBrowserFallback && browserSpeechAvailable && <button className="assistant-browser-voice-fallback" type="button" disabled={busy} onClick={() => void toggleVoice(true)}>{t("Use browser speech recognition")}</button>}
           {speechUrl && <audio controls src={speechUrl} aria-label={t("Spoken assistant reply")} className="assistant-audio" />}
         </div>
       </section>

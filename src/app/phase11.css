@@ -99,13 +99,22 @@ html[data-sidebar="collapsed"] .workspace-sidebar-bottom { justify-content: cent
 .profile-edit-row button { flex: none; min-width: 100px; padding-inline: 11px; border: 0; border-radius: 7px; background: var(--ws-deep); color: var(--ws-deep-ink); font-size: 12px; font-weight: 700; }
 .profile-edit-row button:disabled { opacity: .45; }
 .profile-dialog small, .profile-dialog p { color: var(--ws-muted); font-size: 12px; line-height: 1.45; }
-.profile-logo-row { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--ws-line); border-radius: 12px; background: var(--ws-field); }
-.profile-logo-row img, .profile-logo-placeholder { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; }
+.profile-logo-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 12px; }
+.profile-logo-card { position: relative; min-width: 0; display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 12px; padding: 10px; border: 1px solid var(--ws-line); border-radius: 12px; background: var(--ws-field); cursor: pointer; transition: border-color .16s ease, background .16s ease; }
+.profile-logo-card:hover, .profile-logo-card.is-dragging { border-color: var(--ws-accent); background: var(--ws-positive-bg); }
+.profile-logo-card:focus-within { outline: 2px solid var(--ws-accent); outline-offset: 2px; }
+.profile-logo-card img, .profile-logo-card .profile-logo-placeholder { width: 72px; height: 72px; border-radius: 10px; object-fit: cover; }
+.profile-logo-card .profile-logo-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.profile-logo-copy { min-width: 0; display: grid; gap: 4px; }
+.profile-logo-copy strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.profile-logo-copy small { font-size: 11px; line-height: 1.45; }
 .profile-logo-placeholder { display: grid; place-items: center; background: var(--ws-deep); color: var(--ws-deep-ink); font: 32px var(--font-editorial); }
 .profile-dialog .profile-field-error, .business-form small[role="alert"] { display: block; color: var(--ws-negative); font-size: 12px; }
-.profile-logo-row input[type="file"] { min-height: 0; padding: 5px 0; border: 0; font-size: 11px; }
-.profile-logo-row button { padding: 9px 11px; border: 0; border-radius: 7px; background: var(--ws-deep); color: var(--ws-deep-ink); font-size: 12px; font-weight: 700; }
+.profile-logo-row button { align-self: center; padding: 11px 13px; border: 0; border-radius: 7px; background: var(--ws-deep); color: var(--ws-deep-ink); font-size: 12px; font-weight: 700; }
 .profile-logo-row button:disabled { opacity: .45; }
+.profile-upload-progress { display: grid; grid-template-columns: minmax(90px, 1fr) auto; align-items: center; gap: 10px; }
+.profile-upload-progress progress { width: 100%; height: 8px; accent-color: var(--ws-accent); }
+.profile-upload-progress span { color: var(--ws-muted); font-size: 11px; }
 .create-shop-form { max-width: 400px; display: grid; gap: 10px; }
 .auth-reset-panel { width: min(100% - 32px, 450px); margin: min(14vh, 110px) auto; }
 .profile-notice, .profile-error { margin: 0 30px 22px; padding: 10px 13px; border-radius: 7px; font-size: 12px; }
@@ -222,11 +231,12 @@ html[data-theme="light"] .auth-panel { box-shadow: 0 24px 60px #39452e25; }
   .profile-edit-row button { min-height: 39px; width: 100%; }
   .profile-dialog-head { padding: 22px 20px 15px; }
   .profile-dialog-content { padding: 19px 20px 15px; }
-  .profile-logo-row { grid-template-columns: 56px minmax(0, 1fr); }
-  .profile-logo-row img, .profile-logo-placeholder { width: 56px; height: 56px; }
-  .profile-logo-row button { grid-column: 2; justify-self: start; }
-  .assistant-language-control { height: 44px; padding-left: 2px; }
-  .assistant-language-control select { width: 45px; height: 44px; font-size: 10px; }
+  .profile-logo-row { grid-template-columns: minmax(0, 1fr); }
+  .profile-logo-card { grid-template-columns: 56px minmax(0, 1fr); }
+  .profile-logo-card img, .profile-logo-card .profile-logo-placeholder { width: 56px; height: 56px; }
+  .profile-logo-row button { width: 100%; }
+  .assistant-language-control { width: 112px; height: 44px; padding-left: 2px; }
+  .assistant-language-control select { width: 112px; height: 44px; font-size: 10px; }
   .assistant-composer .assistant-mic { min-width: 42px; }
   .assistant-composer button { width: 42px; height: 44px; }
   .assistant-composer input { font-size: 13px; }

@@ -15,7 +15,6 @@ import { readIdempotencyKey, missingIdempotencyKey } from "@/server/security/ide
 import { enforceShopRateLimit } from "@/server/security/rate-limit";
 import { ProviderRequestError, retryAfterSeconds } from "@/lib/ai/provider-http";
 import { isClarificationCancel, shouldContinuePending } from "@/lib/assistant/merchant-language";
-import { parseSpokenSale } from "@/lib/assistant/vernacular-quantity";
 import type { AssistantResponse } from "@/lib/business/assistant-response";
 import type { PendingClarification } from "@/lib/ai/types/tool-call";
 
@@ -106,7 +105,7 @@ export async function POST(request: Request) {
   let provider;
   try { provider = createAIProvider(process.env, async () => {
     const limit = await enforceShopRateLimit(context, "openrouter_reasoner");
-    if (limit) throw new ProviderRequestError(config.AI_REASONER === "gemini" ? "Gemini" : "OpenRouter", limit.status, limit.headers.get("Retry-After"), "shop");
+    if (limit) throw new ProviderRequestError("Gemini", limit.status, limit.headers.get("Retry-After"), "shop");
   }); } catch {
     return finish({ state: "failed", title: "AI provider unavailable", intent: "assistant.reason",
       detail: "The selected provider is not configured.", reply: "The selected AI provider is not configured. Nothing was changed." }, 503, pending, continuing ? savedRequestKey : null);
@@ -114,10 +113,7 @@ export async function POST(request: Request) {
   let reasoning;
   try {
     const reasoningStarted = performance.now();
-    const spokenSale = !pending ? parseSpokenSale(parsed.data.text) : null;
-    reasoning = reasoningResultSchema.parse(spokenSale
-      ? { kind: "tool_call", tool: { intent: "sales.prepareSpoken", arguments: spokenSale } }
-      : await provider.reason({ text: parsed.data.text, recent: parsed.data.recent, pending }));
+    reasoning = reasoningResultSchema.parse(await provider.reason({ text: parsed.data.text, recent: parsed.data.recent, pending }));
     if (trace) console.info("Assistant timing", { phase: "reason-and-validation", durationMs: Math.round(performance.now() - reasoningStarted) });
   }
   catch (error) {

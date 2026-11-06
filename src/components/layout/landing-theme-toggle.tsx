@@ -10,15 +10,12 @@ export function LandingThemeToggle() {
   const { t } = useLocale();
   useEffect(() => {
     const sync = () => applyAppearance(readAppearance());
-    const media = matchMedia("(prefers-color-scheme: dark)");
     sync();
     window.addEventListener("storage", sync);
     window.addEventListener(appearanceEvent, sync);
-    media.addEventListener("change", sync);
     return () => {
       window.removeEventListener("storage", sync);
       window.removeEventListener(appearanceEvent, sync);
-      media.removeEventListener("change", sync);
     };
   }, []);
 

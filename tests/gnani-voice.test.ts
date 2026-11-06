@@ -30,14 +30,19 @@ describe("Gnani voice boundary without network calls", () => {
     expect(transcript.text).toBe("Maggi ke 20 packet add kar do");
     expect(calls[0].url).toBe("https://api.vachana.ai/stt/v3");
     expect(new Headers(calls[0].init?.headers).get("X-API-Key-ID")).toBe("test-key");
-    expect((calls[0].init?.body as FormData).get("language_code")).toBe("hi-IN");
+    expect((calls[0].init?.body as FormData).get("model")).toBe("prisma-v3.0");
+    expect((calls[0].init?.body as FormData).get("language_code")).toBe("hi-IN,en-IN");
+    expect((calls[0].init?.body as FormData).get("format")).toBe("codemix");
     expect((calls[0].init?.body as FormData).get("audio_file")).toBeInstanceOf(File);
+
+    await provider.transcribe({ audio: encodeWav([new Float32Array(8000)], 16000), mimeType: "audio/wav", languageHint: "en-IN" });
+    expect((calls[1].init?.body as FormData).get("language_code")).toBe("en-IN,hi-IN");
 
     const speech = await provider.synthesize("Stock updated.");
     expect(speech.kind).toBe("audio");
-    expect(calls[1].url).toBe("https://api.vachana.ai/api/v1/tts/inference");
-    expect(new Headers(calls[1].init?.headers).get("X-API-Key-ID")).toBe("test-key");
-    const body = JSON.parse(String(calls[1].init?.body));
+    expect(calls[2].url).toBe("https://api.vachana.ai/api/v1/tts/inference");
+    expect(new Headers(calls[2].init?.headers).get("X-API-Key-ID")).toBe("test-key");
+    const body = JSON.parse(String(calls[2].init?.body));
     expect(body).toMatchObject({ model: "timbre-v2.5", voice: "Nalini", language: "hi-en" });
   });
 

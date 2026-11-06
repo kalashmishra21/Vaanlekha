@@ -21,8 +21,11 @@ export class GnaniVoiceProvider implements AIProvider {
     const language = z.enum(["hi-IN", "en-IN"]).parse(input.languageHint ?? "hi-IN");
     const form = new FormData();
     form.set("audio_file", new File([new Uint8Array(input.audio)], "request.wav", { type: "audio/wav" }));
-    form.set("language_code", language);
-    form.set("format", "transcribe");
+    // Prisma v3 supports up to four language hints and the documented
+    // code-mixed output mode, which handles Hindi, Hinglish and Indian English.
+    form.set("model", "prisma-v3.0");
+    form.set("language_code", language === "hi-IN" ? "hi-IN,en-IN" : "en-IN,hi-IN");
+    form.set("format", "codemix");
     const response = await this.request(STT_URL, {
       method: "POST", headers: { "X-API-Key-ID": this.key }, body: form,
       signal: AbortSignal.timeout(20_000), cache: "no-store",

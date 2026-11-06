@@ -1,6 +1,7 @@
 import { getShopContext } from "@/server/data/context";
 import { profileUpdateSchema } from "@/lib/auth/profile-schema";
 import { normalizeLocale } from "@/lib/i18n";
+import { reportShopLogoFailure } from "@/lib/business/shop-logo-diagnostics";
 
 export async function GET() {
   const context = await getShopContext();
@@ -13,15 +14,22 @@ export async function GET() {
   ]);
   if (authError || !account.user || profileError || shopResult.error) return Response.json({ error: "Account details are unavailable. Try again." }, { status: 503 });
   const shop = shopResult.data;
-  const signedLogo = shop?.logo_path
-    ? await context.client.storage.from("shop-logos").createSignedUrl(shop.logo_path, 3600)
-    : null;
+  let logoUrl: string | null = null;
+  if (shop?.logo_path) {
+    try {
+      const signed = await context.client.storage.from("shop-logos").createSignedUrl(shop.logo_path, 3600);
+      if (signed.error || !signed.data?.signedUrl) reportShopLogoFailure("private_preview_read", signed.error ?? new Error("Signed URL missing"));
+      else logoUrl = signed.data.signedUrl;
+    } catch (error) {
+      reportShopLogoFailure("private_preview_read", error);
+    }
+  }
   return Response.json({
     displayName: profile?.display_name || account.user.user_metadata?.display_name || "",
     email: account.user.email || "",
     preferredLanguage: account.user.user_metadata?.preferred_language === "hi" || account.user.user_metadata?.preferred_language === "en"
       ? normalizeLocale(account.user.user_metadata.preferred_language) : null,
-    shop: shop ? { id: shop.id, name: shop.name, currency: "INR", phone: shop.phone, logoUrl: signedLogo?.data?.signedUrl ?? null } : null,
+    shop: shop ? { id: shop.id, name: shop.name, currency: "INR", phone: shop.phone, logoUrl } : null,
   });
 }
 

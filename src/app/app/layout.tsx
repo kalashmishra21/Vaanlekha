@@ -29,13 +29,11 @@ async function WorkspaceLayoutData({ children }: Readonly<{ children: React.Reac
   const connected = context.kind === "ready";
   const config = readProviderConfig();
   const reasonerDescription = config.AI_REASONER === "gemini"
-    ? "Store data is live. Gemini reasoning is configured with OpenRouter fallback."
-    : config.AI_REASONER === "openrouter"
-      ? "Store data is live. OpenRouter reasoning is configured."
-      : "Store data is live. Reasoning uses the mock provider.";
+    ? "Store data is live. Gemini is primary, with OpenRouter fallback for retryable provider errors."
+    : "Store data is live. Reasoning uses the development mock provider.";
   return (
     <WorkspaceChrome shopName={connected ? context.shop.name : "Workspace setup"}
-      connected={connected} providerMode={config.AI_PROVIDER} reasonerMode={config.AI_REASONER} voiceAvailable={Boolean(process.env.GNANI_API_KEY)}
+      connected={connected} providerMode={config.AI_PROVIDER} reasonerMode={config.AI_REASONER} voiceAvailable={Boolean(process.env.GNANI_API_KEY?.trim())}
       status={connected ? "Store connected" : "Vaani is ready"}
       description={connected ? reasonerDescription : "Connect a shop to enable trusted business actions."}>
       {children}

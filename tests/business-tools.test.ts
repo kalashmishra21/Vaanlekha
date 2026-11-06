@@ -134,17 +134,11 @@ describe("business boundary", () => {
     }
   });
 
-  it("confirms a stock adjustment only after the repository succeeds", async () => {
+  it("executes an explicit stock addition once and reports only the saved repository result", async () => {
     const fake = fakeRepository();
     const executor = new BusinessToolExecutor(fake.repository);
-    const proposal = await executeValidatedToolCall({ intent: "inventory.adjust", arguments: { product: "Maggi", delta: 20 } }, executor);
-    expect(proposal).toMatchObject({ ok: false, clarification: { pending: { kind: "product-existing-confirm", delta: 20 } } });
-    expect(fake.getStock()).toBe(20);
-    if (!("clarification" in proposal)) throw new Error("Expected stock confirmation");
-    const confirmed = await new MockAIProvider().reason({ text: "haan", pending: proposal.clarification.pending });
-    if (confirmed.kind !== "tool_call") throw new Error("Expected confirmed stock call");
-    const result = await executeValidatedToolCall(confirmed.tool, executor);
-    expect(result).toMatchObject({ ok: true, data: { newStock: 40 } });
+    const result = await executeValidatedToolCall({ intent: "inventory.adjust", arguments: { product: "Maggi", delta: 20 } }, executor);
+    expect(result).toMatchObject({ ok: true, data: { newStock: 40, delta: 20 } });
     expect(fake.getStock()).toBe(40);
     expect(describeToolResult(result).reply).toContain("Done.");
   });
@@ -168,18 +162,16 @@ describe("business boundary", () => {
     ["आइसक्रीम", "Ice Cream", "packet", 10],
     ["Ice Cream", "आइसक्रीम", "pack", 10],
     ["Maggi", "Maggie", "packet", 10],
-  ])("matches %s to the saved %s alias and waits for approval", async (savedName, requestName, unit, delta) => {
+  ])("matches %s to the saved %s alias and applies an explicit addition without confirmation", async (savedName, requestName, unit, delta) => {
     let stock = 10;
+    let adjustmentCalls = 0;
     const repository = { products: async () => [{ id: "11111111-1111-4111-8111-111111111119", name: savedName, unit: "packet", currentStock: stock, sellingPrice: 25 }],
-      adjustStock: async (_id: string, change: number) => { stock += change; return stock; } } as unknown as BusinessRepository;
+      adjustStock: async (_id: string, change: number) => { adjustmentCalls += 1; stock += change; return stock; } } as unknown as BusinessRepository;
     const executor = new BusinessToolExecutor(repository);
-    const proposal = await executor.execute({ intent: "inventory.adjust", arguments: { product: requestName, unit, delta } });
-    expect(proposal).toMatchObject({ clarification: { pending: { kind: "product-existing-confirm", delta: 10, unit: "packet" } } });
-    expect(stock).toBe(10);
-    if (!("clarification" in proposal)) throw new Error("Expected confirmation");
-    const yes = await new MockAIProvider().reason({ text: "हाँ", pending: JSON.parse(JSON.stringify(proposal.clarification.pending)) });
-    if (yes.kind !== "tool_call") throw new Error("Expected stock call after approval");
-    expect(await executor.execute(yes.tool)).toMatchObject({ ok: true, data: { newStock: 20 } });
+    const result = await executor.execute({ intent: "inventory.adjust", arguments: { product: requestName, unit, delta } });
+    expect(result).toMatchObject({ ok: true, data: { newStock: 20, delta: 10 } });
+    expect(stock).toBe(20);
+    expect(adjustmentCalls).toBe(1);
   });
 
   it("carries a new Maggie item's context through the price reply and stores the canonical Maggi name", async () => {

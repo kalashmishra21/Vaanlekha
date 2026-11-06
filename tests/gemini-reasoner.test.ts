@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GeminiReasoner } from "../src/lib/ai/reasoners/gemini";
 import { createAIProvider } from "../src/lib/ai/provider";
+import { readProviderConfig } from "../src/lib/env/config";
 import { MockAIProvider } from "../src/lib/ai/providers/mock";
 import { ProviderRequestError } from "../src/lib/ai/provider-http";
 
@@ -8,7 +9,7 @@ const completion = (name: string, args: unknown) => Response.json({
   choices: [{ message: { tool_calls: [{ function: { name, arguments: JSON.stringify(args) } }] } }],
 });
 
-describe("optional Gemini reasoner", () => {
+describe("Gemini primary reasoner", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("uses the free-tier Gemini endpoint and validates proposed tool arguments", async () => {
@@ -75,6 +76,34 @@ describe("optional Gemini reasoner", () => {
     expect(requests.at(-1)).toBe("https://openrouter.ai/api/v1/chat/completions");
   });
 
+  it("keeps successful Gemini reasoning primary and never sends a normal request to OpenRouter", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      requests.push(url);
+      return completion("inventory_adjust", { product: "Maggi", delta: 20, unit: "packet" });
+    });
+    const provider = createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "gemini", GEMINI_API_KEY: "test-gemini",
+      OPENROUTER_API_KEY: "test-router", OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free" });
+    await expect(provider.reason({ text: "Maggi ke 20 packet add kar do" })).resolves.toMatchObject({
+      kind: "tool_call", tool: { intent: "inventory.adjust", arguments: { product: "Maggi", delta: 20 } },
+    });
+    expect(requests).toEqual(["https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"]);
+  });
+
+  it("does not use OpenRouter for invalid Gemini output or non-retryable provider failures", async () => {
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      requests.push(url);
+      return url.includes("generativelanguage")
+        ? new Response(null, { status: 400 })
+        : completion("supplier_list", {});
+    });
+    const provider = createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "gemini", GEMINI_API_KEY: "test-gemini",
+      OPENROUTER_API_KEY: "test-router", OPENROUTER_MODEL: "nvidia/nemotron-3-ultra-550b-a55b:free" });
+    await expect(provider.reason({ text: "List our suppliers" })).rejects.toMatchObject({ provider: "Gemini", status: 400 });
+    expect(requests).toEqual(["https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"]);
+  });
+
   it("uses OpenRouter after a Gemini provider quota response but preserves the shop rate limit", async () => {
     const requests: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => {
@@ -101,6 +130,21 @@ describe("optional Gemini reasoner", () => {
     vi.stubGlobal("fetch", async () => completion("supplier_list", {}));
     await expect(createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "gemini", GEMINI_API_KEY: "gemini" })
       .reason({ text: "Could you list our vendors?" })).resolves.toMatchObject({ kind: "tool_call", tool: { intent: "supplier.list" } });
-    expect(() => createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "openrouter" })).toThrow("OPENROUTER_API_KEY");
+    expect(() => createAIProvider({ AI_PROVIDER: "mock", AI_REASONER: "openrouter" })).toThrow("GEMINI_API_KEY");
+  });
+
+  it("forces Gemini in production even if an old deployment selects mock or OpenRouter", async () => {
+    const config = readProviderConfig({ NODE_ENV: "production", AI_PROVIDER: "mock", AI_REASONER: "openrouter" });
+    expect(config).toMatchObject({ AI_PROVIDER: "gnani", AI_REASONER: "gemini" });
+    const requests: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      requests.push(url);
+      return completion("supplier_list", {});
+    });
+    const provider = createAIProvider({ NODE_ENV: "production", AI_PROVIDER: "mock", AI_REASONER: "mock", GEMINI_API_KEY: "test-gemini" });
+    await provider.reason({ text: "List our suppliers" });
+    expect(requests).toEqual(["https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"]);
+    await expect(provider.transcribe({ audio: new Uint8Array(), mimeType: "audio/wav", languageHint: "hi-IN" }))
+      .rejects.toThrow("GNANI_API_KEY");
   });
 });

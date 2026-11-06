@@ -131,7 +131,7 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
           if (!product) return { ok: false, error: "Product not found. No stock changed." };
           const delta = stockDelta(call.arguments.delta, call.arguments.unit, product.unit);
           if (delta === null) return { ok: false, error: `The requested unit cannot be safely converted to ${product.unit}. No stock changed.` };
-          if (call.intent === "inventory.adjust") return clarificationResult(
+          if (call.intent === "inventory.adjust" && delta < 0) return clarificationResult(
             `Should I ${delta > 0 ? "add" : "remove"} ${Math.abs(delta)} ${product.unit} ${delta > 0 ? "to" : "from"} ${product.name} stock? Reply yes or cancel. Nothing has changed.`,
             { kind: "product-existing-confirm", product: product.name, delta, unit: product.unit },
           );

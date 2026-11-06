@@ -7,14 +7,14 @@ const completion = (name: string, args: unknown) => Response.json({
 });
 
 describe("OpenRouter reasoner trust boundary", () => {
-  it("charges model quota only when a request actually reaches OpenRouter", async () => {
+  it("checks quota for each clear non-conversation request sent to the model", async () => {
     let quotaChecks = 0;
     const request: typeof fetch = async () => completion("inventory_adjust", { product: "Maggi", delta: 20 });
     const reasoner = new OpenRouterReasoner("test-key", model, request, () => "2026-10-08", async () => { quotaChecks += 1; });
     await reasoner.reason({ text: "Maggi ke 20 packet add kar do" });
-    expect(quotaChecks).toBe(0);
-    await reasoner.reason({ text: "Increase Maggi inventory by twenty packets" });
     expect(quotaChecks).toBe(1);
+    await reasoner.reason({ text: "Increase Maggi inventory by twenty packets" });
+    expect(quotaChecks).toBe(2);
   });
 
   it("proposes one Zod-valid tool call without executing it", async () => {
@@ -109,25 +109,44 @@ describe("OpenRouter reasoner trust boundary", () => {
     expect("pending" in result).toBe(false);
   });
 
-  it("asks for an opening amount and completes the follow-up without a second model call", async () => {
-    const unavailable: typeof fetch = async () => { throw new Error("Should not call model"); };
-    const reasoner = new OpenRouterReasoner("test-key", model, unavailable);
+  it("asks for an opening amount and validates the follow-up after a second model call", async () => {
+    let calls = 0;
+    const request: typeof fetch = async () => {
+      calls += 1;
+      return calls === 1
+        ? completion("clarify_openAccount", { customer: "Nandini" })
+        : completion("continue_pending", {});
+    };
+    const reasoner = new OpenRouterReasoner("test-key", model, request);
     const first = await reasoner.reason({ text: "Nandini naam se customer add karo udhaar wala" });
     expect(first).toMatchObject({ kind: "clarify", pending: { customer: "Nandini" } });
     if (first.kind !== "clarify") throw new Error("Expected clarification");
     await expect(reasoner.reason({ text: "100 rupaye", pending: first.pending })).resolves.toMatchObject({
       kind: "tool_call", tool: { intent: "khata.openAccount", arguments: { customer: "Nandini", amountRupees: 100 } },
     });
+    expect(calls).toBe(2);
   });
 
-  it("recognizes exact merchant commands safely when the free provider is unavailable", async () => {
+  it("does not substitute local mock reasoning when the provider is unavailable", async () => {
     const unavailable: typeof fetch = async () => { throw new Error("Provider unavailable"); };
     const reasoner = new OpenRouterReasoner("test-key", model, unavailable, () => "2026-10-08");
-    await expect(reasoner.reason({ text: "Nandini ke naam se 100 rupaye ka naya udhaar khata bana do" })).resolves.toMatchObject({
-      kind: "tool_call", tool: { intent: "khata.openAccount", arguments: { customer: "Nandini", amountRupees: 100 } },
-    });
-    await expect(reasoner.reason({ text: "Nandini ne 50 rupaye wapas diye" })).resolves.toMatchObject({
-      kind: "tool_call", tool: { intent: "khata.addEntry", arguments: { type: "received", amountRupees: 50 } },
-    });
+    await expect(reasoner.reason({ text: "Nandini ke naam se 100 rupaye ka naya udhaar khata bana do" })).rejects.toMatchObject({ status: 503 });
+    await expect(reasoner.reason({ text: "Nandini ne 50 rupaye wapas diye" })).rejects.toMatchObject({ status: 503 });
+  });
+
+  it("executes a saved new-product price answer immediately through the trusted pending parser", async () => {
+    const request: typeof fetch = async () => completion("continue_pending", {});
+    await expect(new OpenRouterReasoner("test-key", model, request).reason({
+      text: "20", pending: { kind: "product-create-price", product: "Maggi", unit: "packet", openingStock: 10 },
+    })).resolves.toEqual({ kind: "tool_call", tool: { intent: "product.create", arguments: {
+      name: "Maggi", unit: "packet", sellingPrice: 20, openingStock: 10, threshold: 5,
+    } } });
+  });
+
+  it("rejects pending continuation when the current request is unrelated", async () => {
+    const request: typeof fetch = async () => completion("continue_pending", {});
+    await expect(new OpenRouterReasoner("test-key", model, request).reason({
+      text: "What is today's sale?", pending: { kind: "product-create-price", product: "Maggi", unit: "packet", openingStock: 10 },
+    })).resolves.toMatchObject({ kind: "clarify" });
   });
 });

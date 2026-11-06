@@ -29,21 +29,16 @@ describe("vernacular assistant actions", () => {
     expect(fake.recordSale).not.toHaveBeenCalled();
   });
 
-  it("converts 250 g to 0.25 kg before adjusting the saved product", async () => {
+  it("converts an explicit 250 g addition to 0.25 kg and saves without an extra confirmation", async () => {
     const proposed = await new MockAIProvider().reason({ text: "250 g चीनी add karo" });
     expect(proposed).toMatchObject({ kind: "tool_call", tool: { intent: "inventory.adjust" } });
     if (proposed.kind !== "tool_call") throw new Error("Expected stock proposal");
     const fake = repository();
     const executor = new BusinessToolExecutor(fake.source);
-    const confirmation = await executor.execute(proposed.tool);
-    expect(confirmation).toMatchObject({ clarification: { pending: { delta: 0.25, unit: "kg" } } });
-    expect(fake.adjustStock).not.toHaveBeenCalled();
-    if (!("clarification" in confirmation)) throw new Error("Expected measured-stock confirmation");
-    const approved = await new MockAIProvider().reason({ text: "haan", pending: confirmation.clarification.pending });
-    if (approved.kind !== "tool_call") throw new Error("Expected approved adjustment");
-    const result = await executor.execute(approved.tool);
+    const result = await executor.execute(proposed.tool);
     expect(result).toMatchObject({ ok: true, data: { delta: 0.25, newStock: 10.25 } });
     expect(fake.adjustStock).toHaveBeenCalledWith(sugar.id, 0.25, expect.any(String));
+    expect(fake.adjustStock).toHaveBeenCalledTimes(1);
   });
 
   it("asks for units instead of guessing what paav oil means", async () => {

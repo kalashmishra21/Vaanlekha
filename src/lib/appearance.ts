@@ -1,20 +1,21 @@
-export type Appearance = "light" | "dark" | "system";
+export type Appearance = "light" | "dark";
 
 export const appearanceEvent = "dukaansaathi-appearance-change";
 
+export function resolveAppearance(value: unknown): Appearance {
+  return value === "dark" ? "dark" : "light";
+}
+
 export function readAppearance(): Appearance {
   try {
-    const value = localStorage.getItem("dukaansaathi-theme");
-    return value === "light" || value === "dark" ? value : "system";
+    return resolveAppearance(localStorage.getItem("dukaansaathi-theme"));
   } catch {
-    return "system";
+    return "light";
   }
 }
 
 export function applyAppearance(next: Appearance) {
-  document.documentElement.dataset.theme = next === "system"
-    ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
-    : next;
+  document.documentElement.dataset.theme = next;
 }
 
 export function saveAppearance(next: Appearance) {

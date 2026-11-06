@@ -14,16 +14,13 @@ export function AppearanceControl({ placement }: { placement: "public" | "worksp
       applyAppearance(readAppearance());
       setTheme(document.documentElement.dataset.theme === "dark" ? "dark" : "light");
     };
-    const media = matchMedia("(prefers-color-scheme: dark)");
     const frame = requestAnimationFrame(sync);
     window.addEventListener(appearanceEvent, sync);
     window.addEventListener("storage", sync);
-    media.addEventListener("change", sync);
     return () => {
       cancelAnimationFrame(frame);
       window.removeEventListener(appearanceEvent, sync);
       window.removeEventListener("storage", sync);
-      media.removeEventListener("change", sync);
     };
   }, []);
 

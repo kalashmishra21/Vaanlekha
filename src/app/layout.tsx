@@ -45,8 +45,8 @@ export default async function RootLayout({ children }: Readonly<{ children: Reac
   const cookieStore = await cookies();
   const locale = normalizeLocale(cookieStore.get("vaanlekha-language")?.value);
   return (
-    <html lang={locale === "hi" ? "hi-IN" : "en-IN"} data-scroll-behavior="smooth" suppressHydrationWarning className={`${manrope.variable} ${newsreader.variable}`}>
-      <head><script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('dukaansaathi-theme');document.documentElement.dataset.theme=t==='light'||t==='dark'?t:matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.sidebar=localStorage.getItem('dukaansaathi-sidebar')==='collapsed'?'collapsed':'expanded'}catch(e){document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';document.documentElement.dataset.sidebar='expanded'}` }} /></head>
+    <html lang={locale === "hi" ? "hi-IN" : "en-IN"} data-theme="light" data-scroll-behavior="smooth" suppressHydrationWarning className={`${manrope.variable} ${newsreader.variable}`}>
+      <head><script dangerouslySetInnerHTML={{ __html: `try{var t=localStorage.getItem('dukaansaathi-theme');document.documentElement.dataset.theme=t==='dark'?'dark':'light';document.documentElement.dataset.sidebar=localStorage.getItem('dukaansaathi-sidebar')==='collapsed'?'collapsed':'expanded'}catch(e){document.documentElement.dataset.theme='light';document.documentElement.dataset.sidebar='expanded'}` }} /></head>
       <body><LocaleProvider initialLocale={locale}>{children}</LocaleProvider></body>
     </html>
   );

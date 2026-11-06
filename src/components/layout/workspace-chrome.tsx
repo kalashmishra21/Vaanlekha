@@ -16,7 +16,7 @@ const AssistantWorkspace = dynamic(() => import("@/components/assistant/assistan
 
 export function WorkspaceChrome({ children, shopName, status, description, connected, providerMode, reasonerMode, voiceAvailable }: {
   children: ReactNode; shopName: string; status: string; description: string;
-  connected: boolean; providerMode: "mock" | "gnani"; reasonerMode: "mock" | "openrouter" | "gemini"; voiceAvailable: boolean;
+  connected: boolean; providerMode: "mock" | "gnani"; reasonerMode: "mock" | "gemini"; voiceAvailable: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const { t } = useLocale();

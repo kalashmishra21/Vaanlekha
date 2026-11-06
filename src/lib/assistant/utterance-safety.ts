@@ -1,6 +1,7 @@
 import type { ToolCall } from "../ai/types/tool-call";
+import { todayInIndia } from "../business/calculations";
 import { normalizeMerchantText, parseMerchantNumber } from "./merchant-language";
-import { parseSpokenQuantity } from "./vernacular-quantity";
+import { parseSpokenQuantity, parseSpokenSale } from "./vernacular-quantity";
 
 export function mentionsMerchantEntity(text: string, name: string): boolean {
   const normalizedText = normalizeMerchantText(text).toLocaleLowerCase("en-IN");
@@ -11,7 +12,7 @@ export function mentionsMerchantEntity(text: string, name: string): boolean {
 }
 
 /** Model proposals need evidence in the current utterance, not just valid JSON. */
-export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
+export function isGroundedToolCall(rawText: string, call: ToolCall, indiaToday = todayInIndia()): boolean {
   const text = normalizeMerchantText(rawText).toLocaleLowerCase("en-IN");
   const mentions = (name: string) => mentionsMerchantEntity(text, name);
   const number = (value: number) => {
@@ -45,8 +46,20 @@ export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
       && has(/\b(?:add|create|new|naya|nayi)\b/u);
     case "inventory.checkList": return has(/\b(?:list|check|shopping)\b/u)
       && call.arguments.items.every((item) => mentions(item.product) && number(item.quantity));
-    case "sales.getDailySummary": return has(/\b(?:sales?|bikri)\b/u)
-      && (has(/\b(?:today|aaj)\b/u) || text.includes(call.arguments.date));
+    case "sales.getDailySummary": {
+      const asksForSales = has(/\b(?:sales?|bikri)\b/u) || has(/बिक्री/u);
+      const asksForToday = has(/\b(?:today|aaj|aj)\b/u) || has(/आज/u);
+      return asksForSales && (asksForToday ? call.arguments.date === indiaToday : text.includes(call.arguments.date));
+    }
+    case "sales.prepareSpoken": {
+      const explicitSale = parseSpokenSale(rawText);
+      return Boolean(explicitSale
+        && normalizeMerchantText(explicitSale.product).toLocaleLowerCase("en-IN") === normalizeMerchantText(call.arguments.product).toLocaleLowerCase("en-IN")
+        && explicitSale.quantity === call.arguments.quantity
+        && explicitSale.unit === call.arguments.unit
+        && explicitSale.unitPrice === call.arguments.unitPrice
+        && explicitSale.priceUnit === call.arguments.priceUnit);
+    }
     case "inventory.getReorderSuggestions": return has(/\b(?:reorder|low.stock)\b/u);
     case "supplier.list": return (has(/\b(?:suppliers?|vendors?)\b/u) || has(/(?:सप्लायर|आपूर्तिकर्ता|विक्रेता)/u))
       && (has(/\b(?:list|show|dikhao|batao|names?)\b/u) || has(/(?:सूची|दिखाओ|बताओ|नाम|कौन)/u));
@@ -60,7 +73,6 @@ export function isGroundedToolCall(rawText: string, call: ToolCall): boolean {
       && has(/\b(?:draft|create|make|bana|de do)\b/u)
       && call.arguments.items.every((item) => mentions(item.product) && number(item.quantity));
     case "product.create":
-    case "sales.prepareSpoken":
     case "sales.recordConfirmedBasket":
     case "orders.transitionConfirmed": return false; // Never available through model function calls.
   }

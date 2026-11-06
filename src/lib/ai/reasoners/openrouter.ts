@@ -1,10 +1,9 @@
 import { z } from "zod";
 import { todayInIndia } from "../../business/calculations";
-import { MockAIProvider } from "../providers/mock";
 import { reasoningResultSchema, type ReasoningResult, type ToolCall } from "../types/tool-call";
 import type { ReasoningInput } from "../types/provider";
 import { ProviderRequestError, retryProviderRequest } from "../provider-http";
-import { isAmbiguousMerchantText, isConversationOnlyMessage } from "../../assistant/merchant-language";
+import { completePending, isAmbiguousMerchantText, isConversationOnlyMessage, shouldContinuePending } from "../../assistant/merchant-language";
 import { isGroundedToolCall, mentionsMerchantEntity } from "../../assistant/utterance-safety";
 
 const endpoint = "https://openrouter.ai/api/v1/chat/completions";
@@ -24,7 +23,9 @@ const tools = [
   ["customer_create", "Add a customer with no opening credit, only when the request does not mention udhaar or opening balance.", parameters({ customer: field }, ["customer"])],
   ["khata_openAccount", "Create a NEW customer and opening udhaar together. Use only when the opening amount is explicit.", parameters({ customer: field, amountRupees: integer }, ["customer", "amountRupees"])],
   ["clarify_openAccount", "Ask for the opening amount when a new udhaar customer or khata is requested without any amount. No customer is created yet.", parameters({ customer: field }, ["customer"])],
+  ["continue_pending", "Continue the server-saved clarification only when the current message clearly answers its one missing detail or confirms a previously described action. The trusted app validates the reply and constructs any action. Do not use for a new request.", parameters({}, [])],
   ["inventory_checkList", "Read inventory and prices for a shopping list. This is a draft, never a sale.", parameters({ items: listItems }, ["items"])],
+  ["sales_prepareSpoken", "Prepare a spoken sale as a reviewable draft only. Never record the sale. Include an explicitly spoken product, quantity and unit; include price only when spoken.", parameters({ product: field, quantity: decimal, unit: { type: "string", enum: ["kg", "g", "litre", "ml", "packet", "piece"] }, unitPrice: decimal, priceUnit: { type: "string", enum: ["kg", "g", "litre", "ml", "packet", "piece"] } }, ["product", "quantity", "unit"])],
   ["sales_getDailySummary", "Read total sales for a YYYY-MM-DD date.", parameters({ date: field }, ["date"])],
   ["inventory_getReorderSuggestions", "Read low-stock reorder quantities. This creates no order.", parameters({}, [])],
   ["supplier_list", "Read the shop's supplier directory.", parameters({}, [])],
@@ -43,6 +44,7 @@ const intentByFunction: Record<string, ToolCall["intent"]> = {
   customer_create: "customer.create",
   khata_openAccount: "khata.openAccount",
   inventory_checkList: "inventory.checkList",
+  sales_prepareSpoken: "sales.prepareSpoken",
   sales_getDailySummary: "sales.getDailySummary",
   inventory_getReorderSuggestions: "inventory.getReorderSuggestions",
   supplier_list: "supplier.list",
@@ -73,10 +75,6 @@ export class OpenRouterReasoner {
     const text = z.string().trim().min(1).max(500).parse(input.text);
     if (isConversationOnlyMessage(text)) return { kind: "unsupported", message: "Hello! Tell me what you would like to check or change in your store." };
     if (isAmbiguousMerchantText(text)) return { kind: "clarify", question: "I am not sure I heard the request clearly. Please repeat the item, action and amount. Nothing was changed." };
-    // Exact supported merchant phrases use deterministic reasoning before the model.
-    // The result still crosses the same Zod and trusted-tool boundary.
-    const recognized = await new MockAIProvider(this.today).reason({ ...input, text });
-    if (recognized.kind !== "unsupported") return reasoningResultSchema.parse(recognized);
     await this.beforeNetworkRequest?.();
     const deadlineSignal = AbortSignal.timeout(this.transport.timeoutMs ?? 15_000);
     const started = performance.now();
@@ -90,7 +88,8 @@ export class OpenRouterReasoner {
         body: JSON.stringify({
         model: this.model,
         messages: [
-          { role: "system", content: `Classify one Indian retailer request into exactly one function call. Only propose a function; never claim it ran. Interpret Hindi, Hinglish and English. Today in India is ${this.today()}. Preserve product, customer, and supplier names. Convert Hindi number words only when unambiguous. For today's sales use today's date. A new udhaar khata with a stated amount needs khata_openAccount; if amount is missing choose clarify_openAccount, never customer_create. A repayment needs khata_addEntry with type received. Khata is INR only; if the user names dollars or another currency, do not convert or assume INR. Do not infer a missing product price, supplier, order ID or amount. A shopping list needs inventory_checkList; do not record a sale. A reorder suggestion is a read-only inventory_getReorderSuggestions call. An order draft uses orders_createDraft only with an explicitly named supplier and product quantities; it does not contact the supplier. An order state change must use orders_transition; the app will request explicit confirmation before it runs. If uncertain, do not call any function.` },
+          { role: "system", content: `Classify one Indian retailer request into exactly one function call. Only propose a function; never claim it ran. Interpret Hindi, Hinglish and English. Today in India is ${this.today()}. Preserve product, customer, and supplier names. Convert Hindi number words only when unambiguous. For today's sales use today's date. A new udhaar khata with a stated amount needs khata_openAccount; if amount is missing choose clarify_openAccount, never customer_create. A repayment needs khata_addEntry with type received. Khata is INR only; if the user names dollars or another currency, do not convert or assume INR. Do not infer a missing product price, supplier, order ID or amount. A shopping list needs inventory_checkList; do not record a sale. A spoken sell request may use sales_prepareSpoken only to create a reviewable draft, never save the sale. A reorder suggestion is a read-only inventory_getReorderSuggestions call. An order draft uses orders_createDraft only with an explicitly named supplier and product quantities; it does not contact the supplier. An order state change must use orders_transition; the app will request explicit confirmation before it runs. If a server-saved pending clarification is supplied, choose continue_pending only when the current message answers that pending question; a fresh unrelated command must use its normal function. If uncertain, do not call any function.` },
+          ...(input.pending ? [{ role: "system", content: `Server-saved pending clarification (trusted context): ${JSON.stringify(input.pending)}. The current merchant message may answer only its missing detail. Use continue_pending for a clear answer; do not change any saved names, quantities, units, prices, IDs, or actions.` }] : []),
           ...(input.recent ?? []).slice(-6).map((turn) => ({ role: turn.role, content: turn.text })),
           { role: "user", content: text },
         ],
@@ -114,7 +113,7 @@ export class OpenRouterReasoner {
     const parseStarted = performance.now();
     const raw: unknown = await response.json();
     if (z.object({ error: z.unknown() }).safeParse(raw).success) {
-      throw new Error(`${this.transport.provider} reasoning provider is temporarily unavailable.`);
+      throw new ProviderRequestError(this.transport.provider, 503, response.headers.get("retry-after"));
     }
     const parsed = completionSchema.safeParse(raw);
     if (!parsed.success) throw new Error(`${this.transport.provider} returned an invalid completion.`);
@@ -122,6 +121,18 @@ export class OpenRouterReasoner {
     const calls = parsed.data.choices[0].message.tool_calls;
     if (!calls?.length) return { kind: "unsupported", message: "No safe intent was identified." };
     if (calls.length !== 1) throw new Error(`${this.transport.provider} proposed multiple actions.`);
+    if (calls[0].function.name === "continue_pending") {
+      let args: unknown;
+      try { args = JSON.parse(calls[0].function.arguments); } catch { throw new Error(`${this.transport.provider} returned invalid pending arguments.`); }
+      z.object({}).strict().parse(args);
+      if (!input.pending || !shouldContinuePending(input.pending, text)) {
+        return { kind: "clarify", question: "That reply does not safely answer the pending question. Please provide the requested detail or start a new request. Nothing was changed." };
+      }
+      const completed = completePending(input.pending, text);
+      return completed ? reasoningResultSchema.parse(completed) : {
+        kind: "clarify", question: "I could not validate that answer. Please provide the requested detail again. Nothing was changed.",
+      };
+    }
     if (calls[0].function.name === "clarify_openAccount") {
       let args: unknown;
       try { args = JSON.parse(calls[0].function.arguments); } catch { throw new Error(`${this.transport.provider} returned invalid clarification arguments.`); }
@@ -136,7 +147,7 @@ export class OpenRouterReasoner {
     let args: unknown;
     try { args = JSON.parse(calls[0].function.arguments); } catch { throw new Error(`${this.transport.provider} returned invalid tool arguments.`); }
     const proposal = reasoningResultSchema.parse({ kind: "tool_call", tool: { intent, arguments: args } });
-    if (proposal.kind !== "tool_call" || !isGroundedToolCall(text, proposal.tool)) {
+    if (proposal.kind !== "tool_call" || !isGroundedToolCall(text, proposal.tool, this.today())) {
       return { kind: "clarify", question: "I could not confirm the item and action from that request. Please say exactly what to check or change, including any quantity or amount. Nothing was changed." };
     }
     return proposal;

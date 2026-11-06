@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { ChevronDown, CircleUserRound, LogOut, X } from "lucide-react";
@@ -8,6 +8,7 @@ import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { normalizeLocale, type Locale } from "@/lib/i18n";
 import { indianMobileError, indianMobileInsertionError } from "@/lib/business/indian-mobile";
 import { validateShopLogoFile } from "@/lib/business/shop-logo";
+import { uploadShopLogo } from "@/lib/business/shop-logo-upload";
 import { useLocale } from "./locale-provider";
 
 type Profile = { displayName: string; email: string; preferredLanguage: Locale | null; shop: { id: string; name: string; currency: string; phone: string | null; logoUrl: string | null } | null };
@@ -29,6 +30,8 @@ export function ProfileControl() {
   const [newEmail, setNewEmail] = useState("");
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoDragging, setLogoDragging] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const root = useRef<HTMLDivElement>(null);
@@ -168,17 +171,22 @@ export function ProfileControl() {
     const validation = validateShopLogoFile(logoFile);
     if (validation) { setError(t(validation)); return; }
     setSaving("logo"); setError(""); setNotice("");
+    setUploadProgress(0);
     try {
-      const form = new FormData(); form.set("image", logoFile);
-      const response = await fetch("/api/profile/logo", { method: "POST", body: form });
-      const result = await response.json() as { ok?: boolean; logoUrl?: string | null; error?: string };
-      if (!response.ok || !result.ok) throw new Error(t(result.error || "Image could not be saved."));
-      setProfile((current) => current?.shop ? { ...current, shop: { ...current.shop, logoUrl: result.logoUrl || null } } : current);
+      const logoUrl = await uploadShopLogo(logoFile, { onProgress: (progress) => setUploadProgress(progress.percent) });
+      setProfile((current) => current?.shop ? { ...current, shop: { ...current.shop, logoUrl } } : current);
       setLogoFile(null); clearLogoPreview();
       if (logoInput.current) logoInput.current.value = "";
       setNotice(t("Shop image was saved."));
     } catch (reason) { setError(reason instanceof Error ? t(reason.message) : t("Image could not be saved.")); }
-    finally { setSaving(null); }
+    finally { setSaving(null); setUploadProgress(null); }
+  }
+
+  function handleLogoDrop(event: DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    setLogoDragging(false);
+    if (saving) return;
+    selectLogoFile(event.dataTransfer.files[0] ?? null);
   }
 
   async function changeEmail() {
@@ -223,7 +231,19 @@ export function ProfileControl() {
       {loading && <p role="status">{t("Loading account details…")}</p>}
       {profile && <div className="profile-dialog-content">
         <div className="profile-dialog-section"><h3>{t("Account")}</h3><label htmlFor="profile-language">{t("Language preference")}</label><select id="profile-language" value={profile.preferredLanguage ?? locale} disabled={Boolean(saving)} onChange={(event) => void saveLanguage(normalizeLocale(event.target.value))}><option value="hi">हिंदी</option><option value="en">English</option></select><small>{t("Choose the language for buttons, labels and help across Vaanlekha.")}</small><label htmlFor="profile-name">{t("Full name")}</label><div className="profile-edit-row"><input id="profile-name" value={displayName} maxLength={80} onChange={(event) => setDisplayName(event.target.value)} /><button type="button" disabled={Boolean(saving) || displayName.trim() === profile.displayName} onClick={() => void save("displayName")}>{t(saving === "displayName" ? "Saving…" : "Save name")}</button></div><label htmlFor="profile-email">{t("Email address")}</label><div className="profile-edit-row"><input id="profile-email" type="email" value={newEmail} onChange={(event) => setNewEmail(event.target.value)} aria-describedby="profile-email-help" /><button type="button" disabled={Boolean(saving) || newEmail.trim().toLowerCase() === profile.email} onClick={() => void changeEmail()}>{t(saving === "email" ? "Sending…" : "Change email")}</button></div><small id="profile-email-help">{t("Current email:")} {profile.email}. {t("Supabase verifies the change before it takes effect.")}</small></div>
-        <div className="profile-dialog-section"><h3>{t("Shop")}</h3>{profile.shop ? <><div className="profile-logo-row">{logoToPreview ? <Image src={logoToPreview} alt={t("Shop image")} width={72} height={72} unoptimized /> : <span className="profile-logo-placeholder" aria-hidden="true">{profile.shop.name.charAt(0)}</span>}<div><label htmlFor="profile-logo">{t("Shop image")}</label><input ref={logoInput} id="profile-logo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => selectLogoFile(event.currentTarget.files?.[0] ?? null)} /><small>{t("JPEG, PNG or WebP, up to 2 MB. Private to your shop.")}</small></div><button type="button" disabled={!logoFile || Boolean(saving)} onClick={() => void uploadLogo()}>{t(saving === "logo" ? "Uploading…" : "Upload")}</button></div><label htmlFor="profile-shop-name">{t("Shop name")}</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{t(saving === "shopName" ? "Saving…" : "Save shop")}</button></div><label htmlFor="profile-phone">{t("Shop phone")}</label><div className="profile-edit-row"><input id="profile-phone" type="tel" inputMode="numeric" autoComplete="tel-national" value={phone} maxLength={10} aria-invalid={Boolean(phoneError)} aria-describedby={phoneError ? "profile-phone-error" : undefined} onChange={(event) => { const value = event.currentTarget.value; setPhone(value); setPhoneError(indianMobileError(value)); setError(""); }} onKeyDown={checkPhoneKey} onPaste={checkPhonePaste} /><button type="button" disabled={Boolean(saving) || phone === (profile.shop.phone || "")} onClick={() => void save("phone")}>{t(saving === "phone" ? "Saving…" : "Save phone")}</button></div>{phoneError && <small id="profile-phone-error" className="profile-field-error" role="alert">{t(phoneError)}</small>}<p>{t("Only you can edit this shop.")} {t("Currency:")} {profile.shop.currency}.</p></> : <p>{t("Create your shop from the workspace to get started.")}</p>}</div>
+        <div className="profile-dialog-section"><h3>{t("Shop")}</h3>{profile.shop ? <><div className="profile-logo-row">
+          <label htmlFor="profile-logo" className={`profile-logo-card${logoDragging ? " is-dragging" : ""}`} aria-describedby="profile-logo-help"
+            onDragOver={(event) => { event.preventDefault(); if (!saving) setLogoDragging(true); }}
+            onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setLogoDragging(false); }}
+            onDrop={handleLogoDrop}>
+          <input ref={logoInput} className="profile-logo-input" id="profile-logo" type="file" accept="image/jpeg,image/png,image/webp" disabled={Boolean(saving)} onChange={(event) => { const input = event.currentTarget; selectLogoFile(input.files?.[0] ?? null); input.value = ""; }} />
+            {logoToPreview ? <Image src={logoToPreview} alt={t("Shop image preview")} width={72} height={72} unoptimized /> : <span className="profile-logo-placeholder" aria-hidden="true">{profile.shop.name.charAt(0)}</span>}
+            <span className="profile-logo-copy"><strong>{t(logoFile ? logoFile.name : "Shop image")}</strong><small id="profile-logo-help">{t("Choose an image or drop it here. JPEG, PNG or WebP, up to 2 MB. Private to your shop.")}</small></span>
+          </label>
+          <button type="button" disabled={!logoFile || Boolean(saving)} onClick={() => void uploadLogo()}>{t(saving === "logo" ? "Uploading…" : "Upload image")}</button>
+        </div>
+        {uploadProgress !== null && <div className="profile-upload-progress" role="status"><progress value={uploadProgress} max={100} aria-label={t("Shop image upload progress")} /><span>{uploadProgress < 100 ? `${t("Uploading image")} · ${uploadProgress}%` : t("Finishing secure save…")}</span></div>}
+        <label htmlFor="profile-shop-name">{t("Shop name")}</label><div className="profile-edit-row"><input id="profile-shop-name" value={shopName} maxLength={120} onChange={(event) => setShopName(event.target.value)} /><button type="button" disabled={Boolean(saving) || shopName.trim() === profile.shop.name} onClick={() => void save("shopName")}>{t(saving === "shopName" ? "Saving…" : "Save shop")}</button></div><label htmlFor="profile-phone">{t("Shop phone")}</label><div className="profile-edit-row"><input id="profile-phone" type="tel" inputMode="numeric" autoComplete="tel-national" value={phone} maxLength={10} aria-invalid={Boolean(phoneError)} aria-describedby={phoneError ? "profile-phone-error" : undefined} onChange={(event) => { const value = event.currentTarget.value; setPhone(value); setPhoneError(indianMobileError(value)); setError(""); }} onKeyDown={checkPhoneKey} onPaste={checkPhonePaste} /><button type="button" disabled={Boolean(saving) || phone === (profile.shop.phone || "")} onClick={() => void save("phone")}>{t(saving === "phone" ? "Saving…" : "Save phone")}</button></div>{phoneError && <small id="profile-phone-error" className="profile-field-error" role="alert">{t(phoneError)}</small>}<p>{t("Only you can edit this shop.")} {t("Currency:")} {profile.shop.currency}.</p></> : <p>{t("Create your shop from the workspace to get started.")}</p>}</div>
       </div>}
       {notice && <p className="profile-notice" role="status">{t(notice)}</p>}
       {error && <p className="profile-error" role="alert">{t(error)}</p>}
