@@ -28,6 +28,30 @@ describe("Gemini multimodal attachment reasoning", () => {
       expect.objectContaining({ file_data: { mime_type: "application/pdf", file_uri: "https://generativelanguage.googleapis.com/v1beta/files/test-file" } }),
       expect.objectContaining({ inline_data: { mime_type: "image/png", data: "AQID" } }),
     ]));
+    expect(body.generationConfig).toMatchObject({
+      responseMimeType: "application/json",
+      responseJsonSchema: {
+        type: "object",
+        required: ["items"],
+        additionalProperties: false,
+        properties: {
+          items: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["product", "quantity"],
+              additionalProperties: false,
+              properties: {
+                product: { type: "string" },
+                quantity: { type: "integer", minimum: 1, maximum: 10000 },
+              },
+            },
+          },
+          answer: { type: "string" },
+        },
+      },
+    });
+    expect(body.generationConfig).not.toHaveProperty("responseSchema");
     expect(String(init?.body)).not.toContain("server-key");
   });
 
@@ -35,6 +59,15 @@ describe("Gemini multimodal attachment reasoning", () => {
     const request: typeof fetch = async () => Response.json({ candidates: [{ content: { parts: [{ text: "not json" }] } }] });
     await expect(new GeminiAttachmentExtractor("server-key", "gemini-3.5-flash-lite", request)
       .extract({ images: [{ mimeType: "image/jpeg", bytes: new Uint8Array([1]) }] })).rejects.toBeInstanceOf(GeminiAttachmentOutputError);
+  });
+
+  it("rejects valid JSON that uses fields outside the attachment contract", async () => {
+    const request: typeof fetch = async () => Response.json({ candidates: [{ content: { parts: [{
+      text: '{"tuesday_quantity":18,"taller_bar":"blue"}',
+    }] } }] });
+    await expect(new GeminiAttachmentExtractor("server-key", "gemini-3.5-flash-lite", request)
+      .extract({ images: [{ mimeType: "image/png", bytes: new Uint8Array([1]) }] }))
+      .rejects.toBeInstanceOf(GeminiAttachmentOutputError);
   });
 
   it("answers document questions from native PDF visual content without inventing a stock list", async () => {

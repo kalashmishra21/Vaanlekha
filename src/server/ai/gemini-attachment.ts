@@ -7,6 +7,27 @@ import type { VisionImage } from "@/lib/ai/vision/openrouter-vision";
 
 const endpoint = "https://generativelanguage.googleapis.com/v1beta/models";
 const responseSchema = z.object({ candidates: z.array(z.object({ content: z.object({ parts: z.array(z.object({ text: z.string().optional() }).passthrough()) }).passthrough() }).passthrough()).min(1) }).passthrough();
+const attachmentResponseSchema = {
+  type: "object",
+  properties: {
+    items: {
+      type: "array",
+      maxItems: 30,
+      items: {
+        type: "object",
+        properties: {
+          product: { type: "string", description: "Product name clearly shown in the document." },
+          quantity: { type: "integer", minimum: 1, maximum: 10000, description: "Quantity clearly shown in the document." },
+        },
+        required: ["product", "quantity"],
+        additionalProperties: false,
+      },
+    },
+    answer: { type: "string", description: "Optional concise answer grounded in visible document evidence." },
+  },
+  required: ["items"],
+  additionalProperties: false,
+} as const;
 
 export class GeminiAttachmentOutputError extends Error {
   constructor() { super("Gemini did not return a verifiable shopping list."); this.name = "GeminiAttachmentOutputError"; }
@@ -52,7 +73,12 @@ export class GeminiAttachmentExtractor {
       response = await this.request(`${endpoint}/${encodeURIComponent(this.model)}:generateContent`, {
         method: "POST",
         headers: { "x-goog-api-key": this.key, "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: { temperature: 0, maxOutputTokens: 700, responseMimeType: "application/json" } }),
+        body: JSON.stringify({ contents: [{ role: "user", parts }], generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 700,
+          responseMimeType: "application/json",
+          responseJsonSchema: attachmentResponseSchema,
+        } }),
         signal: AbortSignal.timeout(30_000),
         cache: "no-store",
       });
