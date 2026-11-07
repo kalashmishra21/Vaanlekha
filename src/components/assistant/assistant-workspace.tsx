@@ -14,6 +14,7 @@ import { browserSpeechFactory, browserSpeechErrorMessage, startBrowserSpeechReco
 import { VoiceSubmissionGate, type VoiceState } from "@/features/assistant/voice-states";
 import { VoiceStateIndicator } from "./voice-state-indicator";
 import { ShoppingListResult } from "./shopping-list-result";
+import { PendingProductPriceCard } from "./pending-product-price-card";
 import { useLocale } from "@/components/layout/locale-provider";
 
 type AttachmentPreview = { name: string; kind: "image" | "pdf"; url: string };
@@ -400,6 +401,13 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     await processPrompt(text, false, retry);
   }
 
+  async function submitPendingProductPrice(price: number) {
+    if (!Number.isFinite(price) || price <= 0 || price > 999999999 || busy || promptInFlight.current) return;
+    // Submit through the same server-owned pending action as a typed reply.
+    // The server validates the saved context and idempotency key before creating stock.
+    await processPrompt(`₹${price}`, false);
+  }
+
   async function processAttachment() {
     if (!attachment || busy || (connected && !conversationId)) return;
     setBusy(true);
@@ -409,21 +417,60 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     setRetryable(false);
     const selected = attachment;
     setAttachment(null);
-    addMessage({ role: "user", text: input.trim() || `Check this shopping list: ${selected.file.name}`, attachment: selected.preview });
+    const question = input.trim();
+    addMessage({ role: "user", text: question || "Check this shopping list", attachment: selected.preview });
     setInput("");
+    let pdfTicket: string | null = null;
+    let uploadedPdfName: string | null = null;
     try {
       setVoiceState("reasoning");
       const { prepareShoppingAttachment } = await import("@/lib/assistant/read-attachment");
       const prepared = await prepareShoppingAttachment(selected.file);
-      if (!isImageUploadWithinLimit(prepared.images)) throw new Error("These image pages exceed the 4 MB upload limit. Use a smaller image or split the PDF.");
+      const fallbackImages = isImageUploadWithinLimit(prepared.images) ? prepared.images : [];
+      if (!prepared.pdf && !fallbackImages.length) throw new Error("Choose a supported image under 4 MB.");
       const form = new FormData();
-      form.set("extractedText", prepared.extractedText);
+      form.set("question", question);
       if (conversationId) form.set("conversationId", conversationId);
-      prepared.images.forEach((image) => form.append("images", image));
+      fallbackImages.forEach((image) => form.append("images", image));
+      if (prepared.pdf) {
+        if (!conversationId) throw new Error("Open a saved conversation before checking a PDF.");
+        const start = await fetch("/api/assistant/attachment-upload", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ size: prepared.pdf.size, conversationId }),
+        });
+        const startBody: unknown = await start.json().catch(() => null);
+        if (!start.ok) throw new Error(errorSchema.safeParse(startBody).success ? errorSchema.parse(startBody).error : "PDF upload could not be started.");
+        const session = z.object({ ticket: z.string().min(1), chunkSize: z.literal(1_048_576) }).parse(startBody);
+        pdfTicket = session.ticket;
+        for (let offset = 0; offset < prepared.pdf.size; offset += session.chunkSize) {
+          const end = Math.min(prepared.pdf.size, offset + session.chunkSize);
+          const chunkResponse = await fetch("/api/assistant/attachment-upload/chunk", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.ticket}`, "X-Upload-Offset": String(offset), "Content-Type": "application/octet-stream" },
+            body: prepared.pdf.slice(offset, end),
+          });
+          const chunkBody: unknown = await chunkResponse.json().catch(() => null);
+          if (!chunkResponse.ok) throw new Error(errorSchema.safeParse(chunkBody).success ? errorSchema.parse(chunkBody).error : "PDF upload failed. Start again.");
+          const received = z.object({ nextOffset: z.number().int().positive(), fileName: z.string().regex(/^files\/[A-Za-z0-9_-]+$/).optional() }).parse(chunkBody);
+          if (received.nextOffset !== end) throw new Error("PDF upload did not finish in order. Start again.");
+          if (end === prepared.pdf.size) {
+            if (!received.fileName) throw new Error("Gemini did not finish the PDF upload. Start again.");
+            uploadedPdfName = received.fileName;
+          }
+        }
+        form.set("pdfTicket", session.ticket);
+        form.set("pdfFileName", uploadedPdfName ?? "");
+      }
       const response = await fetch("/api/assistant/attachment", { method: "POST", headers: { "Idempotency-Key": crypto.randomUUID() }, body: form });
       await showTurn(await readTurn(response));
       if (typeof BroadcastChannel !== "undefined") { const channel = new BroadcastChannel("dukaansaathi-assistant"); channel.postMessage({ thread: conversationId }); channel.close(); }
     } catch (reason) {
+      if (pdfTicket && uploadedPdfName) {
+        await fetch("/api/assistant/attachment-upload", {
+          method: "DELETE", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ticket: pdfTicket, fileName: uploadedPdfName }),
+        }).catch(() => undefined);
+      }
       setVoiceState("error");
       addMessage({ role: "assistant", text: reason instanceof Error ? reason.message : "The attachment could not be checked. No stock was changed.", failed: true });
     } finally {
@@ -685,8 +732,17 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
         <div className="conversation-head"><div><span className="conversation-head-mark"><AudioLines size={20} strokeWidth={1.5} aria-hidden="true" /></span><div><strong>{t("Store conversation")}</strong><span>{t(connected ? "Answers from your shop records" : "Connect a shop to act")}</span></div></div><span>{t(connected ? "SAVED TO YOUR SHOP" : "PREVIEW SESSION")}</span></div>
         <div className="conversation-feed" aria-live="polite">
           {messages.length === 0 && <div className="assistant-welcome"><div className="assistant-welcome-mark"><AudioLines size={27} strokeWidth={1.4} aria-hidden="true" /></div><h2>{t("What needs doing")}<br /><em>{t("in your shop?")}</em></h2><p>{t(connected ? "Ask a question, update stock, or turn a list into a checked draft. Store changes appear only after they are saved." : "Connect your shop to check real stock, khata, sales and orders.")}</p><button className="assistant-speak-primary" type="button" onClick={() => void toggleVoice()} disabled={busy || (realVoice && !voiceAvailable)}><Mic size={19} aria-hidden="true" /> {t(realVoice ? "Speak to Vaani" : "Try a sample voice request")}</button></div>}
-          {messages.map((message, index) => <article ref={index === messages.length - 1 ? latestMessage : undefined} key={message.id} className={`conversation-entry ${message.role}`} data-state={message.failed ? "failed" : message.result?.state}><span className="conversation-speaker">{t(message.role === "user" ? "YOU" : "VAANI")}</span><div className="conversation-body">{(message.result || message.failed) && <span className="conversation-outcome">{t(message.failed ? "Needs attention" : message.result?.state === "confirmed" ? "Store confirmed" : message.result?.state === "draft" ? "For review" : message.result?.state === "unsupported" ? "Try another request" : "Awaiting detail")}</span>}<p>{message.role === "assistant" && message.failed ? t(message.text) : message.text}</p>
-            {message.result && !message.result.shoppingList && message.result.state !== "unsupported" && <div className={`conversation-result ${message.result.state}`}><span>{t(message.result.state === "confirmed" ? "VERIFIED STORE RESULT" : message.result.state === "draft" ? "DRAFT FOR REVIEW" : message.result.state === "clarify" ? "WAITING FOR YOU" : "STORE RESULT")}</span><strong>{message.result.title}</strong><small>{message.result.detail}</small></div>}
+          {messages.map((message, index) => <article ref={index === messages.length - 1 ? latestMessage : undefined} key={message.id} className={`conversation-entry ${message.role}`} data-state={message.failed ? "failed" : message.result?.state}><span className="conversation-speaker">{t(message.role === "user" ? "YOU" : "VAANI")}</span><div className="conversation-body">{(message.result || message.failed) && <span className="conversation-outcome">{t(message.failed ? "Needs attention" : message.result?.state === "confirmed" ? "Store confirmed" : message.result?.state === "draft" ? "For review" : message.result?.state === "preview" ? "Document summary" : message.result?.state === "unsupported" ? "Try another request" : "Awaiting detail")}</span>}<p>{message.role === "assistant" && message.failed ? t(message.text) : message.text}</p>
+            {message.result && !message.result.shoppingList && message.result.state !== "unsupported" && <div className={`conversation-result ${message.result.state}`}><span>{t(message.result.state === "confirmed" ? "VERIFIED STORE RESULT" : message.result.state === "draft" ? "DRAFT FOR REVIEW" : message.result.state === "preview" ? "DOCUMENT SUMMARY" : message.result.state === "clarify" ? "WAITING FOR YOU" : "STORE RESULT")}</span><strong>{message.result.title}</strong><small>{message.result.detail}</small></div>}
+            {index === messages.length - 1 && pending?.kind === "product-create-price" && message.role === "assistant" && message.result?.pending?.kind === "product-create-price" && <PendingProductPriceCard
+              product={pending.product}
+              unit={pending.unit}
+              openingStock={pending.openingStock}
+              busy={busy}
+              onSubmit={(price) => void submitPendingProductPrice(price)}
+              label={t("Selling price per")}
+              actionLabel={t("Create & Add Stock")}
+            />}
             {message.attachment && <div className="conversation-attachment">{message.attachment.kind === "image" ? <Image unoptimized src={message.attachment.url} alt={`Preview of ${message.attachment.name}`} width={64} height={64} /> : <FileText size={26} aria-hidden="true" />}<span>{message.attachment.name}</span></div>}
             {message.result?.shoppingList && <ShoppingListResult draft={message.result.shoppingList} busy={busy} inactive={inactiveDrafts.includes(message.id)} onConfirm={(draft, payment) => void confirmSale(draft, payment, message.id)} />}
             {message.result?.state === "clarify" && <span className="clarification-hint">{t("Waiting for your reply · nothing has changed yet")}</span>}
@@ -706,7 +762,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); fileInput.current?.click(); }}><ImagePlus size={18} aria-hidden="true" /> {t("Upload photo")}</button>
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); pdfInput.current?.click(); }}><FileText size={18} aria-hidden="true" /> {t("Upload PDF/document")}</button>
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); cameraInput.current?.click(); }}><Camera size={18} aria-hidden="true" /> {t("Take photo")}</button>
-                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("Images up to 4 MB; PDFs up to 5 MB. Files are not saved by Vaanlekha. Images go to the vision provider. Lists remain drafts until you confirm a sale.")}</p></details>
+                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("Images up to 4 MB; PDFs up to 5 MB. Vaanlekha does not save files to your shop. Gemini analyzes attachments; PDFs are deleted after processing and expire at the provider within 48 hours if interrupted. OpenRouter receives attachment images only when Gemini fails and fallback is configured. Lists remain drafts until you confirm a sale.")}</p></details>
               </div>}
             </div>
             <label className="assistant-language-control"><span className="sr-only">{t("Voice language")}</span><select aria-label={t("Voice language")} value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value as typeof voiceLanguage)} disabled={busy || voiceInputLocked}><option value="hi-IN">हिंदी / Hinglish</option><option value="en-IN">English / Hinglish</option></select></label>

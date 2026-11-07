@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { businessActionSchema } from "../src/lib/business/schemas";
 import { indiaDayBounds, khataBalance, salePreviewTotal, todayInIndia, totalKhataOutstanding } from "../src/lib/business/calculations";
 import { BusinessToolExecutor, describeToolResult, type BusinessRepository } from "../src/server/tools/business-executor";
@@ -188,7 +188,10 @@ describe("business boundary", () => {
     const price = await provider.reason({ text: "20", pending: question.clarification.pending });
     expect(price).toMatchObject({ kind: "tool_call", tool: { intent: "product.create", arguments: { name: "Maggi", sellingPrice: 20, openingStock: 10 } } });
     if (price.kind !== "tool_call") throw new Error("Expected immediate product creation after price");
+    const createProduct = vi.spyOn(fake.repository, "createProduct");
     await expect(executor.execute(price.tool)).resolves.toMatchObject({ ok: true, data: { product: "Maggi", stock: 10, sellingPrice: 20 } });
+    expect(createProduct).toHaveBeenCalledTimes(1);
+    expect(createProduct).toHaveBeenCalledWith(expect.objectContaining({ name: "Maggi", sellingPrice: 20, openingStock: 10 }), "88888888-8888-4888-8888-888888888888");
   });
 
   it.each(["chini", "cheeni", "chinee", "shakkar"])("matches %s to a saved Hindi sugar product for an exact sale draft", async (spokenName) => {
