@@ -8,16 +8,18 @@ const { loadEnvConfig } = nextEnv;
 loadEnvConfig(root);
 
 const secretNames = [
+  "CRON_SECRET",
   "GEMINI_API_KEY",
   "OPENROUTER_API_KEY",
   "GNANI_API_KEY",
+  "SUPABASE_ACCESS_TOKEN",
   "SUPABASE_SERVICE_ROLE_KEY",
   "SUPABASE_DB_PASSWORD",
 ];
 const configuredSecrets = secretNames
   .map((name) => process.env[name]?.trim())
   .filter((value) => value && value.length >= 8);
-const publicSecretName = /\bNEXT_PUBLIC_(?:GEMINI_API_KEY|OPENROUTER_API_KEY|GNANI_API_KEY|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_PASSWORD)\b/;
+const publicSecretName = /\bNEXT_PUBLIC_(?:CRON_SECRET|GEMINI_API_KEY|OPENROUTER_API_KEY|GNANI_API_KEY|SUPABASE_ACCESS_TOKEN|SUPABASE_SERVICE_ROLE_KEY|SUPABASE_DB_PASSWORD)\b/;
 const secretPatterns = [
   { label: "Google API key format", pattern: /AIza[0-9A-Za-z_-]{35}/ },
   { label: "OpenRouter API key format", pattern: /sk-or-v1-[0-9a-fA-F]{64}/ },
