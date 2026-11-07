@@ -9,3 +9,12 @@ export const attachmentUnderstandingSchema = z.object({
 });
 
 export type AttachmentUnderstanding = z.infer<typeof attachmentUnderstandingSchema>;
+
+export type AttachmentQuestionMode = "visual-question" | "shopping-list";
+
+export function attachmentQuestionMode(question: string): AttachmentQuestionMode {
+  const text = question.normalize("NFKC").toLocaleLowerCase("en-IN");
+  if (/\b(?:shopping\s+list|list|inventory|stock|compare|check\s+(?:this\s+)?list)\b|सूची|लिस्ट/u.test(text)) return "shopping-list";
+  if (/\b(?:what|which|describe|see|image|picture|photo|products?|quantities|visible)\b|क्या|कौन|दिख/u.test(text)) return "visual-question";
+  return "shopping-list";
+}

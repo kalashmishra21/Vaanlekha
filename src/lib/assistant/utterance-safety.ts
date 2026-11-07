@@ -58,7 +58,9 @@ export function isGroundedToolCall(rawText: string, call: ToolCall, indiaToday =
     case "khata.addEntry": return mentions(call.arguments.customer) && number(call.arguments.amountRupees)
       && (call.arguments.type === "received"
         ? has(/\b(?:paid|payment|received|repay|returned|return|wapas|jama)\b/u) && !has(/\b(?:gave|credit|udhaar)\b/u)
-        : has(/\b(?:add|likh|gave|credit|udhaar|diya|diye|liya)\b/u) && !has(/\b(?:paid|payment|received|repay|returned|return|wapas|jama)\b/u));
+        : (has(/\b(?:add|likh|gave|credit|udhaar)\b/u)
+          || has(/\bliya\b/u) && has(/\b(?:credit|udhaar|khata)\b/u))
+          && !has(/\b(?:paid|payment|received|repay|returned|return|wapas|jama)\b/u));
     case "customer.addEntryById": return false;
     case "customer.getBalanceById":
     case "customer.getHistoryById": return false;

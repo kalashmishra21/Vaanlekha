@@ -12,6 +12,7 @@ const stage13Migration = readFileSync("supabase/migrations/20261010090000_mutati
 const clarificationMigration = readFileSync("supabase/migrations/20261010100000_assistant_pending_clarifications.sql", "utf8");
 const transitionGuardMigration = readFileSync("supabase/migrations/20261010110000_order_transition_confirmation_guard.sql", "utf8");
 const conversationMigration = readFileSync("supabase/migrations/20261010182851_assistant_conversations.sql", "utf8");
+const privateAttachmentsMigration = readFileSync("supabase/migrations/20261107193000_private_assistant_attachments.sql", "utf8");
 const userId = "11111111-1111-4111-8111-111111111111";
 const otherId = "22222222-2222-4222-8222-222222222222";
 
@@ -27,6 +28,13 @@ describe("Supabase migration in local PostgreSQL", () => {
         create function auth.uid() returns uuid language sql stable as $$
           select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
         $$;
+        create schema storage;
+        create table storage.buckets(id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+        create table storage.objects(name text, bucket_id text);
+        alter table storage.objects enable row level security;
+        create function storage.foldername(value text) returns text[] language sql immutable as $$ select regexp_split_to_array(value, '/') $$;
+        grant usage on schema storage to authenticated;
+        grant select, insert, delete on storage.objects to authenticated;
         alter default privileges in schema public grant all on tables to authenticated;
       `);
       await db.exec(migration);
@@ -39,6 +47,14 @@ describe("Supabase migration in local PostgreSQL", () => {
       await db.exec(clarificationMigration);
       await db.exec(transitionGuardMigration);
       await db.exec(conversationMigration);
+      await db.exec(privateAttachmentsMigration);
+      const privateAttachmentObjects = await db.query<{ is_private: boolean; attachments_rls: boolean; object_policy_count: number }>(`
+        select not b.public as is_private,
+          (select relrowsecurity from pg_class where oid = 'public.assistant_message_attachments'::regclass) as attachments_rls,
+          (select count(*)::integer from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'assistant_attachment_objects_owner_%') as object_policy_count
+        from storage.buckets b where b.id = 'assistant-attachments'
+      `);
+      expect(privateAttachmentObjects.rows[0]).toEqual({ is_private: true, attachments_rls: true, object_policy_count: 3 });
       const orderItemShopIndex = await db.query<{ exists: boolean }>(`
         select exists (
           select 1 from pg_indexes
@@ -84,6 +100,23 @@ describe("Supabase migration in local PostgreSQL", () => {
       const turnKey = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
       const reserved = await db.query<{ result: { status: string } }>(`select public.reserve_assistant_turn('${shopId}', '${threadId}', '${turnKey}', 'Aaj ki sale batao') result`);
       expect(reserved.rows[0].result.status).toBe("reserved");
+      const userMessage = await db.query<{ id: string }>(`select id from public.assistant_messages where conversation_id = '${threadId}' and role = 'user' and request_key = '${turnKey}'`);
+      const attachmentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab";
+      const attachmentPath = `${shopId}/${threadId}/${userId}/${attachmentId}`;
+      await db.query(`insert into public.assistant_message_attachments(id,shop_id,owner_id,conversation_id,storage_path,file_name,mime_type,file_size,attachment_type)
+        values ('${attachmentId}','${shopId}','${userId}','${threadId}','${attachmentPath}','list.png','image/png',12,'image')`);
+      await db.query(`insert into storage.objects(name,bucket_id) values ('${attachmentPath}','assistant-attachments')`);
+      await db.query(`update public.assistant_message_attachments set message_id = '${userMessage.rows[0].id}', uploaded_at = now() where id = '${attachmentId}'`);
+      const ownAttachment = await db.query<{ attachments: number; objects: number }>(`select
+        (select count(*)::integer from public.assistant_message_attachments where id = '${attachmentId}') attachments,
+        (select count(*)::integer from storage.objects where name = '${attachmentPath}') objects`);
+      expect(ownAttachment.rows[0]).toEqual({ attachments: 1, objects: 1 });
+      await db.exec(`set request.jwt.claim.sub = '${otherId}';`);
+      const hiddenAttachment = await db.query<{ attachments: number; objects: number }>(`select
+        (select count(*)::integer from public.assistant_message_attachments where id = '${attachmentId}') attachments,
+        (select count(*)::integer from storage.objects where name = '${attachmentPath}') objects`);
+      expect(hiddenAttachment.rows[0]).toEqual({ attachments: 0, objects: 0 });
+      await db.exec(`set request.jwt.claim.sub = '${userId}';`);
       const duplicateBusy = await db.query<{ result: { status: string } }>(`select public.reserve_assistant_turn('${shopId}', '${threadId}', '${turnKey}', 'Aaj ki sale batao') result`);
       expect(duplicateBusy.rows[0].result.status).toBe("busy");
       await expect(db.query(`select public.reserve_assistant_turn('${shopId}', '${threadId}', '${turnKey}', 'Add stock')`)).rejects.toThrow();

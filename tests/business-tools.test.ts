@@ -7,6 +7,7 @@ import { matchShoppingList } from "../src/lib/assistant/match-shopping-list";
 import { toolCallSchema, type ToolCall } from "../src/lib/ai/types/tool-call";
 import { reorderSuggestions } from "../src/lib/business/reorder";
 import { MockAIProvider } from "../src/lib/ai/providers/mock";
+import { completePending, isClarificationCancel } from "../src/lib/assistant/merchant-language";
 
 function fakeRepository() {
   const maggiId = "11111111-1111-4111-8111-111111111112";
@@ -74,6 +75,42 @@ describe("business boundary", () => {
     expect(fake.getStock()).toBe(20);
   });
 
+  it("asks before creating an unsaved supplier, then creates the requested internal draft after confirmation", async () => {
+    const fake = fakeRepository();
+    fake.repository.suppliers = async () => [];
+    const createSupplier = vi.spyOn(fake.repository, "createSupplier");
+    const createOrder = vi.spyOn(fake.repository, "createOrderDraft");
+    const executor = new BusinessToolExecutor(fake.repository, "11111111-1111-4111-8111-111111111111");
+    const request = { intent: "orders.createDraft" as const, arguments: { supplier: "Test Supplier", items: [{ product: "Maggi", quantity: 10 }] } };
+    const proposal = await executor.execute(request);
+    expect(proposal).toMatchObject({ ok: false, clarification: { pending: { kind: "supplier-create-confirm", supplier: "Test Supplier", items: [{ product: "Maggi", quantity: 10 }] } } });
+    expect(createSupplier).not.toHaveBeenCalled();
+    expect(createOrder).not.toHaveBeenCalled();
+    if (!("clarification" in proposal)) throw new Error("Expected supplier confirmation");
+    const confirmed = completePending(proposal.clarification.pending, "yes");
+    expect(confirmed).toMatchObject({ kind: "tool_call", tool: { intent: "orders.createDraftConfirmed" } });
+    if (confirmed?.kind !== "tool_call") throw new Error("Expected confirmed order tool");
+    const saved = await executor.execute(confirmed.tool);
+    expect(createSupplier).toHaveBeenCalledWith("Test Supplier", "11111111-1111-4111-8111-111111111111");
+    expect(createOrder).toHaveBeenCalledTimes(1);
+    expect(createOrder.mock.calls[0][1]).toEqual([{ productId: "11111111-1111-4111-8111-111111111112", quantity: 10 }]);
+    expect(saved).toMatchObject({ ok: true, data: { intent: "orders.createDraftConfirmed", status: "draft" } });
+    expect(describeToolResult(saved).reply).toContain("No supplier was contacted");
+  });
+
+  it("does not create a missing supplier or order when the confirmation is declined", async () => {
+    const fake = fakeRepository();
+    fake.repository.suppliers = async () => [];
+    const createSupplier = vi.spyOn(fake.repository, "createSupplier");
+    const createOrder = vi.spyOn(fake.repository, "createOrderDraft");
+    const proposed = await new BusinessToolExecutor(fake.repository).execute({ intent: "orders.createDraft",
+      arguments: { supplier: "Test Supplier", items: [{ product: "Maggi", quantity: 10 }] } });
+    expect(proposed).toHaveProperty("clarification");
+    expect(isClarificationCancel("cancel")).toBe(true);
+    expect(createSupplier).not.toHaveBeenCalled();
+    expect(createOrder).not.toHaveBeenCalled();
+  });
+
   it("never confirms an order draft after a repository failure", async () => {
     const fake = fakeRepository();
     fake.repository.createOrderDraft = async () => { throw new Error("Purchase order draft could not be saved."); };
@@ -105,6 +142,54 @@ describe("business boundary", () => {
       { customer_id: "a", type: "received", amount: 200 },
       { customer_id: "b", type: "received", amount: 50 },
     ])).toBe(260);
+  });
+
+  it("executes Hindi credit as gave and repayment as received with the returned balance", async () => {
+    const fake = fakeRepository();
+    const addEntry = vi.spyOn(fake.repository, "addEntry");
+    const provider = new MockAIProvider();
+    const executor = new BusinessToolExecutor(fake.repository);
+    const credit = await provider.reason({ text: "Rahul ne 100 rupaye ka udhaar liya" });
+    if (credit.kind !== "tool_call") throw new Error("Expected credit tool");
+    expect(await executor.execute(credit.tool)).toMatchObject({ ok: true, data: { type: "gave", amount: 100, balance: 360 } });
+    const repayment = await provider.reason({ text: "Rahul ne 50 rupaye wapas kar diye" });
+    if (repayment.kind !== "tool_call") throw new Error("Expected repayment tool");
+    expect(await executor.execute(repayment.tool)).toMatchObject({ ok: true, data: { type: "received", amount: 50, balance: 310 } });
+    expect(addEntry.mock.calls.map((call) => call[1])).toEqual(["gave", "received"]);
+  });
+
+  it("creates a missing customer and initial credit through the atomic open-account repository call", async () => {
+    const fake = fakeRepository();
+    fake.repository.customers = async () => [];
+    const openAccount = vi.spyOn(fake.repository, "openAccount");
+    const reasoning = await new MockAIProvider().reason({ text: "Rahul ne 100 rupaye ka udhaar liya" });
+    if (reasoning.kind !== "tool_call") throw new Error("Expected credit tool");
+    expect(await new BusinessToolExecutor(fake.repository).execute(reasoning.tool)).toMatchObject({
+      ok: true, data: { intent: "khata.openAccount", customer: "Rahul", balance: 100, automatic: true },
+    });
+    expect(openAccount).toHaveBeenCalledWith("Rahul", 100, expect.any(String));
+  });
+
+  it("does not create a customer for a repayment and keeps duplicate names unresolved", async () => {
+    const noCustomer = fakeRepository();
+    noCustomer.repository.customers = async () => [];
+    const noWrite = vi.spyOn(noCustomer.repository, "addEntry");
+    const repayment = await new MockAIProvider().reason({ text: "Rahul ne 50 rupaye wapas kar diye" });
+    if (repayment.kind !== "tool_call") throw new Error("Expected repayment tool");
+    expect(await new BusinessToolExecutor(noCustomer.repository).execute(repayment.tool)).toMatchObject({
+      ok: false, error: "No matching customer was found for this repayment. No entry was saved.",
+    });
+    expect(noWrite).not.toHaveBeenCalled();
+
+    const duplicates = fakeRepository();
+    const first = { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "Rahul" };
+    const second = { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "Rahul" };
+    duplicates.repository.customers = async () => [first, second];
+    const duplicateWrite = vi.spyOn(duplicates.repository, "addEntry");
+    const ambiguous = await new BusinessToolExecutor(duplicates.repository).execute({ intent: "khata.addEntry",
+      arguments: { customer: "Rahul", type: "gave", amountRupees: 100 } });
+    expect(ambiguous).toMatchObject({ clarification: { pending: { kind: "customer-select", candidates: [{ id: first.id }, { id: second.id }] } } });
+    expect(duplicateWrite).not.toHaveBeenCalled();
   });
 
   it("calculates a sale preview in paise and rejects unknown products", () => {

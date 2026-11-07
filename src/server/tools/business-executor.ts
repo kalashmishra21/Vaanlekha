@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { khataBalance, rupees, todayInIndia } from "../../lib/business/calculations";
 import type { PendingClarification, ToolCall } from "../../lib/ai/types/tool-call";
 import type { TrustedToolExecutor, ToolExecutionResult } from "./contracts";
@@ -12,6 +13,14 @@ export type SupplierRecord = { id: string; name: string; contactName?: string | 
 export type ReorderRecord = { product: string; stock: number; threshold: number; quantity: number };
 export type OrderStatus = "draft" | "placed" | "received" | "cancelled";
 export type OpenOrderRecord = { id: string; orderNumber?: string; orderDate?: string; total?: number; supplier: string; status: OrderStatus; items: string[] };
+
+function derivedRequestKey(requestKey: string, operation: string): string {
+  const hex = createHash("sha256").update(`vaanlekha:${operation}:${requestKey}`).digest("hex").slice(0, 32).split("");
+  hex[12] = "5";
+  hex[16] = ((parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
+  const value = hex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
+}
 
 function canonicalProductAlias(value: string): string {
   return value.trim().replace(/\bmaggie\b/giu, "Maggi").replace(/मैगी/gu, "Maggi");
@@ -510,17 +519,33 @@ export class BusinessToolExecutor implements TrustedToolExecutor {
           const status = await this.repository.transitionOrder(order.id, call.arguments.expectedStatus, call.arguments.action, this.requestKey);
           return { ok: true, data: { intent: call.intent, supplier: order.supplier, orderId: order.id, orderNumber: order.orderNumber ?? `LEGACY-${order.id}`, action: call.arguments.action, status } };
         }
-        case "orders.createDraft": {
+        case "orders.createDraft":
+        case "orders.createDraftConfirmed": {
           const [suppliers, products] = await Promise.all([this.repository.suppliers(), this.repository.products()]);
-          const supplier = matchByName(suppliers, call.arguments.supplier);
-          if (!supplier) return { ok: false, error: "Supplier not found. Add the supplier first." };
           const items = call.arguments.items.map((item) => {
             const product = matchByName(products, item.product);
             if (!product) throw new Error(`Product not found: ${item.product}.`);
             return { productId: product.id, quantity: item.quantity };
           });
           if (new Set(items.map((item) => item.productId)).size !== items.length) return { ok: false, error: "The order repeats a product." };
-          const order = await this.repository.createOrderDraft(supplier.id, items, this.requestKey);
+          let supplier = matchByName(suppliers, call.arguments.supplier);
+          if (!supplier && call.intent === "orders.createDraft") return clarificationResult(
+            `I could not find ${call.arguments.supplier} in this shop's supplier list. Add this supplier and create an internal purchase-order draft for the requested items? No records have been created.`,
+            { kind: "supplier-create-confirm", supplier: call.arguments.supplier, items: call.arguments.items });
+          if (!supplier) {
+            try {
+              const id = await this.repository.createSupplier(call.arguments.supplier, this.requestKey);
+              supplier = { id, name: call.arguments.supplier };
+            } catch (error) {
+              // A concurrent explicit addition may have won the unique-name race.
+              const refreshed = matchByName(await this.repository.suppliers(), call.arguments.supplier);
+              if (!refreshed) throw error;
+              supplier = refreshed;
+            }
+          }
+          const orderKey = call.intent === "orders.createDraftConfirmed"
+            ? derivedRequestKey(this.requestKey, "confirmed-order-draft") : this.requestKey;
+          const order = await this.repository.createOrderDraft(supplier.id, items, orderKey);
           return { ok: true, data: { intent: call.intent, supplier: supplier.name, itemCount: items.length, id: order.id, orderNumber: order.orderNumber, status: order.status } };
         }
       }
@@ -645,6 +670,7 @@ export function describeToolResult(result: ToolExecutionResult): { title: string
       return { title: `Order ${status}`, detail: `${data.orderNumber ?? `LEGACY-${String(data.orderId)}`} · ${data.supplier} · ${status}`, reply: `${data.supplier}'s order ${data.orderNumber ?? `LEGACY-${String(data.orderId)}`} was ${actionText}; its saved status is ${status}.${disclosure}` };
     }
     case "orders.createDraft":
+    case "orders.createDraftConfirmed":
       return { title: `Purchase order ${data.status}`, detail: `${data.orderNumber ?? "Reference unavailable"} · ${data.supplier} · ${data.itemCount} product(s)`, reply: `Internal purchase order ${data.orderNumber ?? "without a reference"} for ${data.supplier} was saved with status ${data.status}. No supplier was contacted and stock was not changed.` };
     default:
       throw new Error("Unknown authoritative tool result.");

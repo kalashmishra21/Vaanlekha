@@ -114,6 +114,11 @@ export const toolCallSchema = z.discriminatedUnion("intent", [
     supplier: name,
     items: z.array(z.object({ product: name, quantity: z.number().int().min(1).max(10000) }).strict()).min(1).max(30),
   }).strict() }).strict(),
+  // Constructed only after the authenticated merchant confirms adding the supplier.
+  z.object({ intent: z.literal("orders.createDraftConfirmed"), arguments: z.object({
+    supplier: name,
+    items: z.array(z.object({ product: name, quantity: z.number().int().min(1).max(10000) }).strict()).min(1).max(30),
+  }).strict() }).strict(),
   // Attachment understanding is registered in the same trusted executor but
   // is never exposed as a text-model tool or permitted to mutate store data.
   z.object({ intent: z.literal("attachment.checkList"), arguments: z.object({ items: z.array(shoppingItemSchema).min(1).max(30) }).strict() }).strict(),
@@ -141,6 +146,8 @@ export const pendingClarificationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("customer-name") }).strict(),
   z.object({ kind: z.literal("supplier-name") }).strict(),
   z.object({ kind: z.literal("order-supplier"), items: z.array(z.object({ product: name, quantity: z.number().int().positive() }).strict()).min(1).max(30) }).strict(),
+  z.object({ kind: z.literal("supplier-create-confirm"), supplier: name,
+    items: z.array(z.object({ product: name, quantity: z.number().int().positive() }).strict()).min(1).max(30) }).strict(),
   z.object({ kind: z.literal("order-transition-confirm"), orderId: z.uuid(), orderLabel: name, currentStatus: z.enum(["draft", "placed", "received", "cancelled"]), action: z.enum(["place", "receive", "cancel"]) }).strict(),
   z.object({ kind: z.literal("order-transition-select"), query: name, action: z.enum(["place", "receive", "cancel"]), candidates: z.array(orderOption).min(2).max(10) }).strict(),
   z.object({ kind: z.literal("order-status-select"), query: name, candidates: z.array(orderOption).min(2).max(10) }).strict(),

@@ -16,8 +16,9 @@ import { VoiceStateIndicator } from "./voice-state-indicator";
 import { ShoppingListResult } from "./shopping-list-result";
 import { PendingProductPriceCard } from "./pending-product-price-card";
 import { useLocale } from "@/components/layout/locale-provider";
+import { AssistantTurnLock, postAssistantTurn } from "@/lib/assistant/submit-turn";
 
-type AttachmentPreview = { name: string; kind: "image" | "pdf"; url: string };
+type AttachmentPreview = { id?: string; name: string; kind: "image" | "pdf"; mimeType?: string; url: string };
 type Message = { id: number; persistedId?: string; role: "user" | "assistant"; text: string; attachment?: AttachmentPreview; result?: AssistantResponse; failed?: boolean };
 type ProviderMode = "mock" | "gnani";
 type ReasonerMode = "mock" | "gemini";
@@ -26,7 +27,7 @@ type ConversationSummary = { id: string; title: string; updated_at: string };
 const threadListSchema = z.object({ conversations: z.array(z.object({ id: z.uuid(), title: z.string(), updated_at: z.string() })) });
 const threadSchema = z.object({ id: z.uuid(), title: z.string(), pending: pendingClarificationSchema.nullable(), messages: z.array(z.object({
   id: z.uuid(), role: z.enum(["user", "assistant"]), text: z.string(), result: assistantResponseSchema.nullable(),
-  request_key: z.uuid(), created_at: z.string(),
+  request_key: z.uuid(), created_at: z.string(), attachment: z.object({ id: z.uuid(), name: z.string(), kind: z.enum(["image", "pdf"]), mimeType: z.string(), url: z.url() }).optional(),
 })) });
 
 const examples = [
@@ -54,7 +55,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   const voiceSubmissionGate = useRef(new VoiceSubmissionGate());
   const voiceStarting = useRef(false);
   const voiceTranscribing = useRef(false);
-  const promptInFlight = useRef(false);
+  const promptInFlight = useRef(new AssistantTurnLock());
   const forceBrowserFallback = useRef(false);
   const recordingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const player = useRef<HTMLAudioElement | null>(null);
@@ -68,7 +69,9 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   const nextId = useRef(1);
   const promptRequest = useRef<{ text: string; key: string } | null>(null);
   const [input, setInput] = useState("");
-  const [attachment, setAttachment] = useState<{ file: File; preview: AttachmentPreview } | null>(null);
+  const [attachment, setAttachment] = useState<{ file: File; preview: AttachmentPreview; attachmentId: string } | null>(null);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
+  const [attachmentUploadProgress, setAttachmentUploadProgress] = useState(0);
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [pending, setPending] = useState<z.infer<typeof pendingClarificationSchema> | null>(null);
@@ -123,6 +126,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
         case "customer-name": return "ग्राहक का नाम लिखें।";
         case "supplier-name": return "सप्लायर का नाम लिखें।";
         case "order-supplier": return "इस ऑर्डर के लिए सेव किया हुआ सप्लायर चुनें।";
+        case "supplier-create-confirm": return `${pending.supplier} को सेव करके ऑर्डर ड्राफ्ट बनाऊँ? हाँ या रद्द लिखें।`;
         case "order-transition-confirm": return `${pending.orderLabel} का ऑर्डर ${pending.action} करें? अभी स्थिति ${pending.currentStatus} है।`;
         case "order-transition-select": return "ऑर्डर को ID या सप्लायर के नाम से चुनें।";
         case "order-status-select": return "स्थिति जानने के लिए ऑर्डर चुनें।";
@@ -142,6 +146,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       case "customer-name": return "Enter the customer's name.";
       case "supplier-name": return "Enter the supplier's name.";
       case "order-supplier": return "Choose a saved supplier for this purchase-order draft.";
+      case "supplier-create-confirm": return `Add ${pending.supplier} and create the internal draft? Reply yes or cancel.`;
       case "order-transition-confirm": return `Confirm ${pending.action} for ${pending.orderLabel} (currently ${pending.currentStatus}).`;
       case "order-transition-select": return "Choose the exact purchase order number.";
       case "order-status-select": return "Choose the exact order whose status you want.";
@@ -164,6 +169,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
         case "customer-name": return "ग्राहक का नाम";
         case "supplier-name": return "सप्लायर का नाम";
         case "order-supplier": return "सेव सप्लायर का नाम";
+        case "supplier-create-confirm": return "हाँ / रद्द";
         case "order-transition-select": return "ऑर्डर का नंबर या सप्लायर का नाम";
         case "order-status-select": return "ऑर्डर नंबर चुनें";
         case "customer-select": return "ग्राहक कार्ड से चुनें";
@@ -183,6 +189,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       case "customer-name": return "Customer name";
       case "supplier-name": return "Supplier name";
       case "order-supplier": return "Saved supplier name";
+      case "supplier-create-confirm": return "Yes / cancel";
       case "order-transition-select": return "Order ID or supplier name";
       case "order-status-select": return "Choose an order number";
       case "customer-select": return "Choose a customer card";
@@ -222,6 +229,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     activeThread.current = thread.id;
     setConversationId(thread.id);
     setMessages(thread.messages.map((message, index) => ({ id: index + 1, persistedId: message.id, role: message.role, text: message.text,
+      ...(message.attachment ? { attachment: message.attachment } : {}),
       result: message.result ?? undefined, failed: message.result?.state === "failed" })));
     nextId.current = thread.messages.length + 1;
     setPending(thread.pending);
@@ -327,10 +335,6 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     return id;
   }
 
-  function recentTurns(): RecentTurn[] {
-    return messages.slice(-6).map((message) => ({ role: message.role, text: message.text.slice(0, 500) }));
-  }
-
   async function readTurn(response: Response): Promise<AssistantResponse> {
     const raw: unknown = await response.json();
     const parsed = assistantResponseSchema.safeParse(raw);
@@ -338,6 +342,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     const safeError = errorSchema.safeParse(raw);
     throw new Error(t(response.status === 401 ? "Sign in again to continue." : safeError.success
       ? safeError.data.error : "The result could not be verified. Check store records before retrying."));
+  }
+
+  function recentTurns(): RecentTurn[] {
+    return messages.slice(-6).map((message) => ({ role: message.role, text: message.text.slice(0, 500) }));
   }
 
   async function showTurn(turn: AssistantResponse) {
@@ -360,9 +368,9 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   }
 
   async function processPrompt(text: string, speak: boolean, retry = false, fromVoice = false) {
-    if (promptInFlight.current || (!fromVoice && (voiceStarting.current || voiceTranscribing.current || recording.current || browserRecording.current))) return;
+    if (promptInFlight.current.active || (!fromVoice && (voiceStarting.current || voiceTranscribing.current || recording.current || browserRecording.current))) return;
     if (connected && (!conversationId || historyError)) { setHistoryError("Choose an available conversation before sending a store request."); return; }
-    promptInFlight.current = true;
+    if (!promptInFlight.current.acquire()) return;
     setBusy(true);
     setWorkingOn(speak ? "voice" : "request");
     setLastPrompt(text);
@@ -378,11 +386,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     addMessage({ role: "user", text });
     try {
       setVoiceState("reasoning");
-      const response = await fetch("/api/assistant/turn", {
-        method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key },
-        body: JSON.stringify({ text, speak, recent, pending, conversationId: conversationId ?? undefined }),
-      });
-      const turn = await readTurn(response);
+      const turn = await postAssistantTurn({ text, speak, recent, pending, conversationId: conversationId ?? undefined, idempotencyKey: key });
       promptRequest.current = null;
       setVoiceState("executing");
       await showTurn(turn);
@@ -396,14 +400,14 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       setRetryable(/nothing was changed|no list or sale was created/i.test(message));
       addMessage({ role: "assistant", text: message, failed: true });
     } finally {
-      promptInFlight.current = false;
+      promptInFlight.current.release();
       setBusy(false);
     }
   }
 
   async function runPrompt(rawText: string, sampleVoice = false, retry = false) {
     const text = rawText.trim();
-    if (!text || busy || promptInFlight.current || voiceStarting.current || voiceTranscribing.current || recording.current || browserRecording.current) return;
+    if (!text || busy || promptInFlight.current.active || voiceStarting.current || voiceTranscribing.current || recording.current || browserRecording.current) return;
     if (sampleVoice) {
       setVoiceState("processing_audio");
       await pause(350);
@@ -414,7 +418,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
   }
 
   async function submitPendingProductPrice(price: number) {
-    if (!Number.isFinite(price) || price <= 0 || price > 999999999 || busy || promptInFlight.current) return;
+    if (!Number.isFinite(price) || price <= 0 || price > 999999999 || busy || promptInFlight.current.active) return;
     // Submit through the same server-owned pending action as a typed reply.
     // The server validates the saved context and idempotency key before creating stock.
     await processPrompt(`₹${price}`, false);
@@ -430,7 +434,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     const selected = attachment;
     setAttachment(null);
     const question = input.trim();
-    addMessage({ role: "user", text: question || "Check this shopping list", attachment: selected.preview });
+    addMessage({ role: "user", text: question || "Check this shopping list", attachment: { ...selected.preview, id: selected.attachmentId } });
     setInput("");
     let pdfTicket: string | null = null;
     let uploadedPdfName: string | null = null;
@@ -443,7 +447,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       const form = new FormData();
       form.set("question", question);
       if (conversationId) form.set("conversationId", conversationId);
-      fallbackImages.forEach((image) => form.append("images", image));
+      form.set("attachmentId", selected.attachmentId);
+      // A PDF's rendered pages are used only for configured visual fallback.
+      // Image bytes are read from the private object by the authenticated route.
+      if (prepared.pdf) fallbackImages.forEach((image) => form.append("images", image));
       if (prepared.pdf) {
         if (!conversationId) throw new Error("Open a saved conversation before checking a PDF.");
         const start = await fetch("/api/assistant/attachment-upload", {
@@ -521,9 +528,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     }
   }
 
-  function chooseFile(file: File | undefined) {
+  async function chooseFile(file: File | undefined) {
     if (!file) return;
-    const isPdf = file.type === "application/pdf" || (!file.type && /\.pdf$/iu.test(file.name));
+    let selectedFile = file;
+    let isPdf = file.type === "application/pdf" || (!file.type && /\.pdf$/iu.test(file.name));
     const fileLimit = isPdf ? MAX_ATTACHMENT_SOURCE_BYTES : MAX_IMAGE_UPLOAD_BYTES;
     const imageExtension = /\.(?:jpe?g|png|webp|heic|heif)$/iu.test(file.name);
     const supportedType = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"].includes(file.type)
@@ -532,11 +540,63 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       setVoiceNotice(t("Choose an image under 4 MB or a PDF under 5 MB."));
       return;
     }
-    if (attachment) URL.revokeObjectURL(attachment.preview.url);
-    const url = URL.createObjectURL(file);
-    objectUrls.current.push(url);
-    setAttachment({ file, preview: { name: file.name, kind: isPdf ? "pdf" : "image", url } });
-    setVoiceNotice("");
+    if (!conversationId || busy || attachmentUploading) {
+      setVoiceNotice(t("Open a saved conversation before uploading an attachment."));
+      return;
+    }
+    setAttachmentUploading(true);
+    setAttachmentUploadProgress(0);
+    setVoiceNotice(t("Preparing private upload…"));
+    let createdId: string | null = null;
+    let objectUrl: string | null = null;
+    try {
+      if (["image/heic", "image/heif"].includes(file.type) || /\.(?:heic|heif)$/iu.test(file.name)) {
+        const { prepareShoppingAttachment } = await import("@/lib/assistant/read-attachment");
+        const prepared = await prepareShoppingAttachment(file);
+        selectedFile = prepared.images[0];
+      }
+      isPdf = selectedFile.type === "application/pdf";
+      const extension = selectedFile.name.toLocaleLowerCase("en-US").split(".").at(-1);
+      const mimeType = selectedFile.type || (isPdf ? "application/pdf" : extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg");
+      const startResponse = await fetch("/api/assistant/attachments", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId, fileName: selectedFile.name, mimeType, size: selectedFile.size }) });
+      const startBody: unknown = await startResponse.json().catch(() => null);
+      if (!startResponse.ok) throw new Error(errorSchema.safeParse(startBody).success ? errorSchema.parse(startBody).error : "A private upload could not be started.");
+      const session = z.object({ id: z.uuid(), signedUrl: z.url() }).parse(startBody);
+      createdId = session.id;
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", session.signedUrl);
+        xhr.setRequestHeader("Content-Type", mimeType);
+        xhr.setRequestHeader("x-upsert", "false");
+        xhr.setRequestHeader("cache-control", "max-age=3600");
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) setAttachmentUploadProgress(Math.min(99, Math.round(event.loaded / event.total * 100)));
+        };
+        xhr.onerror = () => reject(new Error("The file could not reach private storage. Check your connection and try again."));
+        xhr.onabort = () => reject(new Error("The attachment upload was cancelled."));
+        xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Private file upload failed (${xhr.status}). Try again.`));
+        xhr.send(selectedFile);
+      });
+      const verifyResponse = await fetch("/api/assistant/attachments", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: session.id }) });
+      const verifyBody: unknown = await verifyResponse.json().catch(() => null);
+      if (!verifyResponse.ok) throw new Error(errorSchema.safeParse(verifyBody).success ? errorSchema.parse(verifyBody).error : "The uploaded file could not be verified.");
+      objectUrl = URL.createObjectURL(selectedFile);
+      objectUrls.current.push(objectUrl);
+      if (attachment) {
+        URL.revokeObjectURL(attachment.preview.url);
+        await fetch("/api/assistant/attachments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: attachment.attachmentId }) }).catch(() => undefined);
+      }
+      setAttachment({ file: selectedFile, preview: { name: selectedFile.name, kind: isPdf ? "pdf" : "image", mimeType, url: objectUrl }, attachmentId: session.id });
+      setAttachmentUploadProgress(100);
+      setVoiceNotice(t("Attachment uploaded privately and ready to send."));
+    } catch (error) {
+      if (createdId) await fetch("/api/assistant/attachments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: createdId }) }).catch(() => undefined);
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      setVoiceNotice(error instanceof Error ? error.message : t("The attachment upload failed. Please try again."));
+    } finally {
+      setAttachmentUploading(false);
+    }
   }
 
   function clearRecordingTimer() {
@@ -680,7 +740,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     if (voiceState === "requesting_permission") { cancelVoice(); return; }
     if (recording.current) { await stopRecording(recording.current.sessionId); return; }
     if (browserRecording.current) { stopBrowserRecording(browserRecording.current.sessionId); return; }
-    if (busy || promptInFlight.current || voiceStarting.current || voiceTranscribing.current) return;
+    if (busy || promptInFlight.current.active || voiceStarting.current || voiceTranscribing.current) return;
     setVoiceNotice("");
     if (useBrowser || forceBrowserFallback.current || !voiceAvailable) {
       forceBrowserFallback.current = false;
@@ -723,6 +783,7 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (attachmentUploading) return;
     if (attachment) void processAttachment();
     else void runPrompt(input);
   }
@@ -781,7 +842,8 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
         </div>
         <div className="conversation-bottom">
           {pending && <div className="pending-clarification" role="status"><ShieldCheck size={17} aria-hidden="true" /><span>{pendingLabel()} {t("Nothing has changed yet.")}</span><button type="button" onClick={() => void runPrompt("cancel")} disabled={busy} aria-label={t("Cancel the pending store request")}><X size={16} aria-hidden="true" /></button></div>}
-          {attachment && <div className="composer-attachment">{attachment.preview.kind === "image" ? <Image unoptimized src={attachment.preview.url} alt={`${t("Preview of")} ${attachment.preview.name}`} width={48} height={48} /> : <FileText size={24} aria-hidden="true" />}<span><strong>{attachment.preview.name}</strong><small>{t("Draft check only · no stock change")}</small></span><button type="button" onClick={() => { URL.revokeObjectURL(attachment.preview.url); setAttachment(null); }} aria-label={t("Remove attachment")}><X size={17} aria-hidden="true" /></button></div>}
+          {attachmentUploading && <p className="composer-voice-notice" role="status">{t("Uploading attachment to private storage")} · {attachmentUploadProgress}%</p>}
+          {attachment && <div className="composer-attachment">{attachment.preview.kind === "image" ? <Image unoptimized src={attachment.preview.url} alt={`${t("Preview of")} ${attachment.preview.name}`} width={48} height={48} /> : <FileText size={24} aria-hidden="true" />}<span><strong>{attachment.preview.name}</strong><small>{t("Private and attached to this conversation · list check only; no stock change")}</small></span><button type="button" onClick={() => { URL.revokeObjectURL(attachment.preview.url); setAttachment(null); void fetch("/api/assistant/attachments", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: attachment.attachmentId }) }); }} aria-label={t("Remove attachment")}><X size={17} aria-hidden="true" /></button></div>}
           {retryable && lastPrompt && <button className="assistant-retry" type="button" onClick={() => void runPrompt(lastPrompt, false, true)} disabled={busy}><RotateCcw size={15} aria-hidden="true" /> {t("Retry safe request")}</button>}
           <form className="assistant-composer" onSubmit={submit}><label htmlFor="assistant-input" className="sr-only">{t("Ask Vaani")}</label><input id="assistant-input" value={input} onChange={(event) => setInput(event.target.value)} placeholder={pendingPlaceholder()} maxLength={500} disabled={busy || voiceInputLocked} />
             <div className="assistant-attachment-control" ref={attachmentMenu}>
@@ -791,16 +853,16 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); fileInput.current?.click(); }}><ImagePlus size={18} aria-hidden="true" /> {t("Upload photo")}</button>
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); pdfInput.current?.click(); }}><FileText size={18} aria-hidden="true" /> {t("Upload PDF/document")}</button>
                 <button type="button" onClick={() => { setAttachmentMenuOpen(false); cameraInput.current?.click(); }}><Camera size={18} aria-hidden="true" /> {t("Take photo")}</button>
-                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("Images up to 4 MB; PDFs up to 5 MB. Vaanlekha does not save files to your shop. Gemini analyzes attachments; PDFs are deleted after processing and expire at the provider within 48 hours if interrupted. OpenRouter receives attachment images only when Gemini fails and fallback is configured. Lists remain drafts until you confirm a sale.")}</p></details>
+                <details className="attachment-privacy"><summary><Info size={16} aria-hidden="true" /> {t("Attachments & privacy")}</summary><p>{t("Images up to 4 MB; PDFs up to 5 MB. Files are stored in private shop-scoped storage and remain with this conversation until it is deleted. Unsent uploads expire after 24 hours and are cleaned on your next history load. Gemini analyzes attachments; temporary Gemini PDFs are deleted after processing. OpenRouter receives rendered image pages only when Gemini fails and fallback is configured. List checks are read-only drafts.")}</p></details>
               </div>}
             </div>
             <label className="assistant-language-control"><span className="sr-only">{t("Voice language")}</span><select aria-label={t("Voice language")} value={voiceLanguage} onChange={(event) => setVoiceLanguage(event.target.value as typeof voiceLanguage)} disabled={busy || voiceInputLocked}><option value="hi-IN">हिंदी / Hinglish</option><option value="en-IN">English / Hinglish</option></select></label>
             <button className="assistant-mic" type="button" disabled={busy || !canUseVoice} aria-label={t(providerMode === "mock" ? "Play sample voice flow" : voiceState === "requesting_permission" ? "Cancel microphone permission request" : voiceState === "recording" ? "Stop recording" : "Start recording")} onClick={() => void toggleVoice()}>{voiceState === "recording" ? <Square size={17} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}<span>{t(providerMode === "mock" ? "Sample" : voiceState === "requesting_permission" ? "Cancel" : voiceState === "recording" ? "Stop" : "Speak")}</span></button>
             {(voiceCaptureActive || voiceProcessingActive) && <button className="assistant-voice-cancel" type="button" onClick={cancelVoice} aria-label={t("Cancel voice recording")}><X size={18} aria-hidden="true" /></button>}
-            <button className="assistant-send" type="submit" disabled={busy || historyLoading || Boolean(historyError) || (connected && !conversationId) || voiceInputLocked || (!input.trim() && !attachment)} aria-label={t("Send message")}><ArrowUp size={19} aria-hidden="true" /></button></form>
-          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
-          <input ref={pdfInput} type="file" accept="application/pdf,.pdf" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
-          <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
+            <button className="assistant-send" type="submit" disabled={busy || attachmentUploading || historyLoading || Boolean(historyError) || (connected && !conversationId) || voiceInputLocked || (!input.trim() && !attachment)} aria-label={t("Send message")}><ArrowUp size={19} aria-hidden="true" /></button></form>
+          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" className="sr-only" tabIndex={-1} onChange={(event) => { void chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
+          <input ref={pdfInput} type="file" accept="application/pdf,.pdf" className="sr-only" tabIndex={-1} onChange={(event) => { void chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
+          <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" className="sr-only" tabIndex={-1} onChange={(event) => { void chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           {voiceNotice && <p className="composer-voice-notice" role="status">{t(voiceNotice)}</p>}
           {realVoice && !canUseVoice && <p className="composer-voice-notice" role="status">{t("Microphone is unavailable here. Add the server-side Gnani key or use a supported browser speech service; typing is always available.")}</p>}
           {offerBrowserFallback && browserSpeechAvailable && <button className="assistant-browser-voice-fallback" type="button" disabled={busy} onClick={() => void toggleVoice(true)}>{t("Use browser speech recognition")}</button>}

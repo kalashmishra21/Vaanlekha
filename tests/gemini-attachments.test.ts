@@ -9,6 +9,7 @@ import { PendingProductPriceCard } from "@/components/assistant/pending-product-
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseUnitSellingPrice } from "@/lib/assistant/pending-price";
+import { attachmentQuestionMode } from "@/lib/assistant/attachment-understanding";
 
 describe("Gemini multimodal attachment reasoning", () => {
   it("prefers native Gemini PDF input and returns validated shopping-list items", async () => {
@@ -60,6 +61,24 @@ describe("Gemini multimodal attachment reasoning", () => {
     const request: typeof fetch = async () => Response.json({ candidates: [{ content: { parts: [{ text: "not json" }] } }] });
     await expect(new GeminiAttachmentExtractor("server-key", "gemini-3.5-flash-lite", request)
       .extract({ images: [{ mimeType: "image/jpeg", bytes: new Uint8Array([1]) }] })).rejects.toBeInstanceOf(GeminiAttachmentOutputError);
+  });
+
+  it("keeps general visual questions separate from shopping-list extraction and sends image bytes", async () => {
+    const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3, 4]);
+    const request = vi.fn<typeof fetch>(async () => Response.json({ candidates: [{ content: { parts: [{ text: '{"items":[],"answer":"A Maggi packet is visible. No readable quantity appears."}' }] } }] }));
+    const extractor = new GeminiAttachmentExtractor("server-key", "gemini-3.5-flash-lite", request);
+    const result = await extractor.extract({ images: [{ mimeType: "image/png", bytes }], question: "Is image mein kya hai? Products aur quantities batao.", mode: "visual-question" });
+    expect(result).toEqual({ items: [], answer: "A Maggi packet is visible. No readable quantity appears." });
+    const body = JSON.parse(String(request.mock.calls[0][1]?.body));
+    const prompt = body.contents[0].parts[0].text as string;
+    expect(prompt).toContain("Answer the user's visual question");
+    expect(prompt).toContain("Do not infer a shopping list");
+    expect(body.contents[0].parts[1].inline_data.data).toBe(Buffer.from(bytes).toString("base64"));
+  });
+
+  it("classifies explicit shopping-list checks separately from visual questions", () => {
+    expect(attachmentQuestionMode("Is image mein kya hai? Products aur quantities batao.")).toBe("visual-question");
+    expect(attachmentQuestionMode("Check this shopping list attachment.")).toBe("shopping-list");
   });
 
   it("rejects valid JSON that uses fields outside the attachment contract", async () => {

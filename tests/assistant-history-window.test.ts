@@ -32,9 +32,14 @@ describe("assistant conversation history window", () => {
       select() { return this; }, eq() { return this; },
       async maybeSingle() { return { data: { id: uuid(900), title: "Long thread", pending: null, updated_at: "2026-10-11T00:00:00Z" }, error: null }; },
     };
+    const attachmentQuery = {
+      select() { return this; }, eq() { return this; }, not() { return this; }, is() { return this; }, lt() { return this; },
+      async limit() { return { data: [], error: null }; },
+      then(resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) { return Promise.resolve({ data: [], error: null }).then(resolve, reject); },
+    };
     const context = {
       kind: "ready", userId: uuid(901), shop: { id: uuid(902), name: "QA" },
-      client: { from: (table: string) => table === "assistant_messages" ? messageQuery : threadQuery },
+      client: { from: (table: string) => table === "assistant_messages" ? messageQuery : table === "assistant_message_attachments" ? attachmentQuery : threadQuery },
     } as unknown as Extract<ShopContext, { kind: "ready" }>;
 
     const result = await new AssistantConversationRepository(context).load(uuid(900));

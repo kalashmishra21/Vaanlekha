@@ -23,4 +23,13 @@ describe("grounded product names", () => {
       intent: "orders.getStatus", arguments: { order: "this order" },
     })).toBe(true);
   });
+
+  it.each([
+    ["Rahul ne 100 rupaye ka udhaar liya", "gave", true],
+    ["Rahul ne 50 rupaye wapas kar diye", "received", true],
+    ["Rahul ne 100 rupaye liya", "gave", false],
+    ["Rahul ne 100 rupaye udhaar liya", "received", false],
+  ] as const)("requires ledger evidence for %s as %s", (text, type, expected) => {
+    expect(isGroundedToolCall(text, { intent: "khata.addEntry", arguments: { customer: "Rahul", type, amountRupees: Number(text.match(/\d+/)?.[0]) } })).toBe(expected);
+  });
 });

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { shoppingDraftSchema } from "@/lib/assistant/shopping-list";
-import type { AttachmentUnderstanding } from "@/lib/assistant/attachment-understanding";
+import { attachmentQuestionMode, type AttachmentUnderstanding } from "@/lib/assistant/attachment-understanding";
 import { OpenRouterVisionExtractor, type VisionImage } from "@/lib/ai/vision/openrouter-vision";
 import { readProviderConfig } from "@/lib/env/config";
 import { getShopContext } from "@/server/data/context";
@@ -45,6 +45,7 @@ export async function POST(request: Request) {
   try { form = await request.formData(); } catch { return Response.json({ error: "Attach a valid image or PDF list." }, { status: 400 }); }
   const questionResult = questionSchema.safeParse(form.get("question") ?? "");
   if (!questionResult.success) return Response.json({ error: "The attachment question is too long." }, { status: 413 });
+  const questionMode = attachmentQuestionMode(questionResult.data);
   const files = form.getAll("images");
   const validImages = files.every((file): file is File => file instanceof File && imageTypes.has(file.type));
   if (!validImages || !isImageUploadWithinLimit(files as File[])) {
@@ -52,34 +53,56 @@ export async function POST(request: Request) {
   }
   const pdfTicketValue = form.get("pdfTicket");
   const pdfFileNameValue = form.get("pdfFileName");
+  const attachmentId = z.uuid().safeParse(form.get("attachmentId"));
   const hasPdfTicket = isPdfTicket(pdfTicketValue);
   const hasPdfFileName = typeof pdfFileNameValue === "string";
   if (hasPdfTicket !== hasPdfFileName) return Response.json({ error: "The PDF upload could not be verified." }, { status: 400 });
-  if (!files.length && !hasPdfTicket) return Response.json({ error: "Attach a readable image or PDF shopping list." }, { status: 422 });
+  if (!attachmentId.success) return Response.json({ error: "The saved private attachment could not be verified." }, { status: 400 });
   const conversationId = z.uuid().safeParse(form.get("conversationId"));
   if (!conversationId.success) return Response.json({ error: "Open a conversation before checking a list." }, { status: 400 });
   const requestKey = readIdempotencyKey(request);
   if (!requestKey) return missingIdempotencyKey();
   const turnKey: string = requestKey;
   const threadId = conversationId.data;
+  const { data: attachment, error: attachmentError } = await context.client.from("assistant_message_attachments")
+    .select("id,storage_path,file_name,mime_type,file_size,attachment_type,message_id,uploaded_at")
+    .eq("id", attachmentId.data).eq("conversation_id", threadId).eq("shop_id", context.shop.id)
+    .eq("owner_id", context.userId).maybeSingle();
+  if (attachmentError || !attachment || !attachment.uploaded_at) return Response.json({ error: "Upload the attachment completely before asking Vaani to read it." }, { status: 404 });
+  if ((attachment.attachment_type === "pdf") !== hasPdfTicket) return Response.json({ error: "The saved attachment type does not match its processing request." }, { status: 400 });
+  if (attachment.message_id) {
+    const { data: linkedMessage } = await context.client.from("assistant_messages").select("request_key")
+      .eq("id", attachment.message_id).eq("conversation_id", threadId).eq("owner_id", context.userId).maybeSingle();
+    if (linkedMessage?.request_key !== turnKey) return Response.json({ error: "This attachment is already linked to another conversation message." }, { status: 409 });
+  }
   const googleKey = process.env.GEMINI_API_KEY?.trim();
   if (hasPdfTicket && !googleKey) return Response.json({ error: "Gemini is not configured for PDF reasoning." }, { status: 503 });
   const claims = hasPdfTicket && googleKey ? verifyGeminiUploadTicket(pdfTicketValue, googleKey) : null;
   if (hasPdfTicket && (!claims || claims.userId !== context.userId || claims.shopId !== context.shop.id || claims.conversationId !== threadId
+    || claims.size !== attachment.file_size
     || !/^files\/[A-Za-z0-9_-]+$/.test(String(pdfFileNameValue)))) {
     return Response.json({ error: "This PDF upload session is invalid or expired." }, { status: 403 });
   }
 
   const images: VisionImage[] = [];
-  for (const file of files as File[]) {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (!matchesSignature(file.type, bytes)) return Response.json({ error: "The image format does not match its file type." }, { status: 422 });
-    images.push({ mimeType: file.type, bytes });
+  const { data: storedFile, error: storedFileError } = await context.client.storage.from("assistant-attachments").download(attachment.storage_path);
+  if (storedFileError || !storedFile || storedFile.size !== attachment.file_size) return Response.json({ error: "The private attachment could not be read completely." }, { status: 422 });
+  const storedBytes = new Uint8Array(await storedFile.arrayBuffer());
+  if (attachment.attachment_type === "image") {
+    if (!matchesSignature(attachment.mime_type, storedBytes) || files.length) return Response.json({ error: "The image format could not be verified." }, { status: 422 });
+    images.push({ mimeType: attachment.mime_type as VisionImage["mimeType"], bytes: storedBytes });
+  } else {
+    if (new TextDecoder().decode(storedBytes.subarray(0, 5)) !== "%PDF-") return Response.json({ error: "The saved PDF could not be verified." }, { status: 422 });
+    for (const file of files as File[]) {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (!matchesSignature(file.type, bytes)) return Response.json({ error: "A rendered PDF page did not match its image type." }, { status: 422 });
+      images.push({ mimeType: file.type, bytes });
+    }
   }
   const conversation = new AssistantConversationRepository(context);
   let reserved;
   try {
-    reserved = await conversation.reserve(threadId, turnKey, "Check a shopping list attachment");
+    reserved = await conversation.reserve(threadId, turnKey, questionResult.data.trim() || "Review attached file");
     if (reserved.status === "completed") return Response.json({ ...reserved.result,
       messageId: await conversation.getAssistantMessageId(threadId, turnKey) }, { status: reserved.result.state === "failed" ? 422 : 200 });
     if (reserved.status === "busy") return Response.json({ error: "This conversation is busy. No list or sale was created." }, { status: 409, headers: { "Retry-After": "2" } });
@@ -90,6 +113,12 @@ export async function POST(request: Request) {
     try { messageId = await conversation.complete(threadId, turnKey, answer, null, null); }
     catch { return Response.json({ error: "The list result could not be saved to the conversation. No sale was recorded." }, { status: 503 }); }
     return Response.json({ ...answer, messageId }, { status, headers });
+  }
+
+  if (!attachment.message_id) {
+    try { await conversation.attachToUserMessage(threadId, attachment.id, turnKey); }
+    catch { return await finish({ state: "failed", title: "Attachment could not be saved", intent: "attachment.reason",
+      detail: "The file remains private and no store records were changed.", reply: "I could not link this file to the conversation. Please remove it and upload it again." }, 503); }
   }
 
   const fileName = hasPdfTicket ? String(pdfFileNameValue) : null;
@@ -121,6 +150,7 @@ export async function POST(request: Request) {
           images: verifiedPdf ? [] : images,
           ...(verifiedPdf ? { pdfUri: verifiedPdf.uri } : {}),
           question: questionResult.data,
+          mode: questionMode,
         });
       } catch (error) {
         if (!canFallbackFromGeminiAttachment(error)) throw error;
@@ -144,7 +174,15 @@ export async function POST(request: Request) {
       const visionConfig = readProviderConfig();
       const fallback = new OpenRouterVisionExtractor(openRouterKey, visionConfig.OPENROUTER_VISION_MODEL,
         fetch, visionConfig.OPENROUTER_VISION_FALLBACK_MODELS);
-      understanding = await fallback.reason(images, questionResult.data);
+      understanding = await fallback.reason(images, questionResult.data, questionMode);
+    }
+
+    if (questionMode === "visual-question") {
+      const evidence = understanding.answer ?? (understanding.items.length
+        ? understanding.items.map((item) => `${item.product}: ${item.quantity == null ? "quantity unclear" : `${item.quantity}${item.unit ? ` ${item.unit}` : ""}`}`).join("; ")
+        : "I could not identify a product clearly in the image.");
+      return await finish({ state: "preview", title: "Image observation", intent: "attachment.reason",
+        detail: "Based only on visible evidence. No shop records were changed.", reply: evidence });
     }
 
     if (understanding.items.length === 0) {

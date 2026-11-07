@@ -11,7 +11,9 @@
 
 ## Architecture
 
-The Next.js App Router serves the website and API routes. Supabase provides authentication, PostgreSQL, row-level security, and private logo storage. Gemini and OpenRouter provide optional reasoning and vision; Gnani provides optional speech services. Provider secrets remain server-side. See [architecture](docs/architecture.md) and [design](DESIGN.md).
+The Next.js App Router serves the website and API routes. Supabase provides authentication, PostgreSQL, row-level security, private logo storage, and private conversation attachments. Gemini and OpenRouter provide optional reasoning and vision; Gnani provides optional speech services. Provider secrets remain server-side. See [architecture](docs/architecture.md) and [design](DESIGN.md).
+
+Assistant attachments are readable only by their shop owner and remain stored until the conversation is deleted. Unsent uploads expire after 24 hours and are cleaned up on the owner's next conversation-history load. Deleting a conversation removes its private files before the conversation record is deleted.
 
 ## Run locally
 
