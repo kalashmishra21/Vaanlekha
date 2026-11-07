@@ -19,6 +19,10 @@ const reservedSchema = z.discriminatedUnion("status", [
   z.object({ status: z.literal("reserved"), pending: pendingClarificationSchema.nullable(), pendingRequestKey: z.uuid().nullable() }),
 ]);
 
+function attachmentSchemaUnavailable(error: { code?: string } | null): boolean {
+  return error !== null && (error.code === "42P01" || error.code === "PGRST205");
+}
+
 export class AssistantConversationRepository {
   constructor(private readonly context: ReadyContext) {}
 
@@ -55,8 +59,8 @@ export class AssistantConversationRepository {
       .select("id,message_id,storage_path,file_name,mime_type,attachment_type,uploaded_at")
       .eq("conversation_id", id).eq("shop_id", this.context.shop.id).eq("owner_id", this.context.userId)
       .not("message_id", "is", null).not("uploaded_at", "is", null);
-    if (attachmentError) throw new Error("Conversation attachments are unavailable.");
-    const attachments = z.array(attachmentSchema).parse(attachmentRows);
+    if (attachmentError && !attachmentSchemaUnavailable(attachmentError)) throw new Error("Conversation attachments are unavailable.");
+    const attachments = attachmentError ? [] : z.array(attachmentSchema).parse(attachmentRows);
     const signed = await Promise.all(attachments.map(async (attachment) => {
       const { data, error: signError } = await this.context.client.storage.from("assistant-attachments")
         .createSignedUrl(attachment.storage_path, 600);
@@ -84,8 +88,8 @@ export class AssistantConversationRepository {
     const { data: rows, error: attachmentError } = await this.context.client.from("assistant_message_attachments")
       .select("storage_path").eq("conversation_id", id).eq("shop_id", this.context.shop.id).eq("owner_id", this.context.userId)
       .not("uploaded_at", "is", null);
-    if (attachmentError) throw new Error("Conversation files could not be listed for removal.");
-    const paths = z.array(z.object({ storage_path: z.string() })).parse(rows).map((row) => row.storage_path);
+    if (attachmentError && !attachmentSchemaUnavailable(attachmentError)) throw new Error("Conversation files could not be listed for removal.");
+    const paths = attachmentError ? [] : z.array(z.object({ storage_path: z.string() })).parse(rows).map((row) => row.storage_path);
     if (paths.length) {
       const { error: storageError } = await this.context.client.storage.from("assistant-attachments").remove(paths);
       if (storageError) throw new Error("Conversation files could not be removed; the conversation is still available.");

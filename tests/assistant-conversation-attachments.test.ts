@@ -8,7 +8,7 @@ const conversationId = "33333333-3333-4333-8333-333333333333";
 const messageId = "44444444-4444-4444-8444-444444444444";
 const attachmentId = "55555555-5555-4555-8555-555555555555";
 
-function makeContext() {
+function makeContext(options: { attachmentTableMissing?: boolean } = {}) {
   const message = { id: messageId, role: "user", text: "What is in this image?", result: null,
     request_key: "66666666-6666-4666-8666-666666666666", created_at: "2026-11-07T10:00:00Z" };
   const attachment = { id: attachmentId, message_id: messageId, storage_path: `${shopId}/${conversationId}/${userId}/${attachmentId}`,
@@ -31,6 +31,9 @@ function makeContext() {
           ? query.deleting ? deleted() : { data: { id: conversationId, title: "History", pending: null }, error: null }
           : deleted(),
         then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) => {
+          if (table === "assistant_message_attachments" && options.attachmentTableMissing) {
+            return Promise.resolve({ data: null, error: { code: "PGRST205" } }).then(resolve, reject);
+          }
           let data = rows[table] ?? [];
           if (table === "assistant_message_attachments" && filters.some(([key, value]) => key === "is:message_id" && value === null)) data = [];
           return Promise.resolve({ data, error: null }).then(resolve, reject);
@@ -55,6 +58,17 @@ describe("saved assistant attachment history", () => {
     const fake = makeContext();
     await new AssistantConversationRepository(fake.context).remove(conversationId);
     expect(fake.storage.remove).toHaveBeenCalledWith([fake.attachment.storage_path]);
+    expect(fake.deleted).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps conversation history and deletion available until the additive attachment migration is installed", async () => {
+    const fake = makeContext({ attachmentTableMissing: true });
+    const repository = new AssistantConversationRepository(fake.context);
+    const loaded = await repository.load(conversationId);
+    expect(loaded.messages).toHaveLength(1);
+    expect(loaded.messages[0]).not.toHaveProperty("attachment");
+    await expect(repository.remove(conversationId)).resolves.toBeUndefined();
+    expect(fake.storage.remove).not.toHaveBeenCalled();
     expect(fake.deleted).toHaveBeenCalledTimes(1);
   });
 });
