@@ -11,14 +11,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { parseUnitSellingPrice } from "@/lib/assistant/pending-price";
 
 describe("Gemini multimodal attachment reasoning", () => {
-  it("sends a PDF and image together to Gemini once and returns validated items", async () => {
-    const request = vi.fn<typeof fetch>(async () => Response.json({ candidates: [{ content: { parts: [{ text: '{"items":[{"product":"Maggi","quantity":2}]}' }] } }] }));
+  it("prefers native Gemini PDF input and returns validated shopping-list items", async () => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ candidates: [{ content: { parts: [{ text: '{"items":[{"product":"Maggi","quantity":2,"unit":"packet"}]}' }] } }] }));
     const extractor = new GeminiAttachmentExtractor("server-key", "gemini-3.5-flash-lite", request);
     await expect(extractor.extract({
       pdfUri: "https://generativelanguage.googleapis.com/v1beta/files/test-file",
-      images: [{ mimeType: "image/png", bytes: new Uint8Array([1, 2, 3]) }],
+      images: [],
       question: "Read the quantity column",
-    })).resolves.toEqual({ items: [{ product: "Maggi", quantity: 2 }] });
+    })).resolves.toEqual({ items: [{ product: "Maggi", quantity: 2, unit: "packet" }] });
     expect(request).toHaveBeenCalledTimes(1);
     const [url, init] = request.mock.calls[0];
     expect(url).toContain("gemini-3.5-flash-lite:generateContent");
@@ -26,8 +26,8 @@ describe("Gemini multimodal attachment reasoning", () => {
     const body = JSON.parse(String(init?.body));
     expect(body.contents[0].parts).toEqual(expect.arrayContaining([
       expect.objectContaining({ file_data: { mime_type: "application/pdf", file_uri: "https://generativelanguage.googleapis.com/v1beta/files/test-file" } }),
-      expect.objectContaining({ inline_data: { mime_type: "image/png", data: "AQID" } }),
     ]));
+    expect(body.contents[0].parts.some((part: { inline_data?: unknown }) => part.inline_data)).toBe(false);
     expect(body.generationConfig).toMatchObject({
       responseMimeType: "application/json",
       responseJsonSchema: {
@@ -39,11 +39,12 @@ describe("Gemini multimodal attachment reasoning", () => {
             type: "array",
             items: {
               type: "object",
-              required: ["product", "quantity"],
+              required: ["product"],
               additionalProperties: false,
               properties: {
                 product: { type: "string" },
-                quantity: { type: "integer", minimum: 1, maximum: 10000 },
+                quantity: { type: "number", minimum: 0.001, maximum: 10000 },
+                unit: { type: "string" },
               },
             },
           },

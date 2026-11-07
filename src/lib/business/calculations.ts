@@ -36,6 +36,20 @@ export function indiaDayBounds(date: string): { start: string; end: string } {
   return { start: start.toISOString(), end: new Date(start.valueOf() + 86400000).toISOString() };
 }
 
+export function indiaMonthBounds(month: string): { start: string; end: string } {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
+  if (!match) throw new Error("Invalid month");
+  const year = Number(match[1]);
+  const monthIndex = Number(match[2]) - 1;
+  const atIndiaMidnight = (calendarMonth: number) => {
+    const date = new Date(0);
+    date.setUTCFullYear(year, calendarMonth, 1);
+    date.setUTCHours(-5, -30, 0, 0);
+    return date.toISOString();
+  };
+  return { start: atIndiaMidnight(monthIndex), end: atIndiaMidnight(monthIndex + 1) };
+}
+
 export function todayInIndia(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
 }

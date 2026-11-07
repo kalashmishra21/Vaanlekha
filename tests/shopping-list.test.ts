@@ -23,6 +23,21 @@ describe("shopping-list extraction and draft boundary", () => {
       items: [{ status: "available", unitPrice: 15, lineTotal: 30 }, { status: "short", stock: 1, lineTotal: 30 }, { status: "missing" }] });
   });
 
+  it("keeps unreadable quantity rows visible and prevents an incomplete list from being confirmed", () => {
+    const draft = matchShoppingList([{ product: "Maggi", quantity: null, unit: "packet" }], catalog);
+    expect(draft).toMatchObject({ canConfirm: false, estimatedTotal: 0,
+      items: [{ productId: catalog[0].id, status: "unit-unclear", unit: "packet", note: expect.stringContaining("could not be read") }] });
+    expect(draft.items[0]).not.toHaveProperty("quantity");
+  });
+
+  it("converts clear document quantities to the saved inventory unit before comparing stock", () => {
+    const draft = matchShoppingList([{ product: "Sugar", quantity: 500, unit: "g" }], [
+      { id: "11111111-1111-4111-8111-111111111114", name: "Sugar", unit: "kg", currentStock: 1.25, sellingPrice: 40 },
+    ]);
+    expect(draft).toMatchObject({ canConfirm: true, estimatedTotal: 20,
+      items: [{ quantity: 0.5, unit: "kg", status: "available", lineTotal: 20, stock: 1.25 }] });
+  });
+
   it("validates vision JSON and detects provider errors inside HTTP 200", async () => {
     const image = [{ mimeType: "image/png" as const, bytes: new Uint8Array([137, 80, 78, 71]) }];
     const valid: typeof fetch = async () => Response.json({ choices: [{ message: { content: '{"items":[{"product":"Maggi","quantity":2}]}' } }] });

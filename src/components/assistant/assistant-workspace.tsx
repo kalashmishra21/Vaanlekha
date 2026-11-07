@@ -125,6 +125,9 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
         case "order-supplier": return "इस ऑर्डर के लिए सेव किया हुआ सप्लायर चुनें।";
         case "order-transition-confirm": return `${pending.orderLabel} का ऑर्डर ${pending.action} करें? अभी स्थिति ${pending.currentStatus} है।`;
         case "order-transition-select": return "ऑर्डर को ID या सप्लायर के नाम से चुनें।";
+        case "order-status-select": return "स्थिति जानने के लिए ऑर्डर चुनें।";
+        case "customer-select": return `${pending.query} के सही ग्राहक का कोड चुनें।`;
+        case "repayment-amount": return `${pending.customer} का बकाया ₹${pending.outstanding} है। इसी सीमा तक भुगतान राशि लिखें।`;
       }
     }
     switch (pending.kind) {
@@ -140,7 +143,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       case "supplier-name": return "Enter the supplier's name.";
       case "order-supplier": return "Choose a saved supplier for this purchase-order draft.";
       case "order-transition-confirm": return `Confirm ${pending.action} for ${pending.orderLabel} (currently ${pending.currentStatus}).`;
-      case "order-transition-select": return "Choose one purchase order by ID or supplier name.";
+      case "order-transition-select": return "Choose the exact purchase order number.";
+      case "order-status-select": return "Choose the exact order whose status you want.";
+      case "customer-select": return `Choose which ${pending.query} this entry belongs to.`;
+      case "repayment-amount": return `${pending.customer} owes ₹${pending.outstanding}; enter a repayment up to that amount.`;
     }
   }
 
@@ -159,6 +165,9 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
         case "supplier-name": return "सप्लायर का नाम";
         case "order-supplier": return "सेव सप्लायर का नाम";
         case "order-transition-select": return "ऑर्डर का नंबर या सप्लायर का नाम";
+        case "order-status-select": return "ऑर्डर नंबर चुनें";
+        case "customer-select": return "ग्राहक कार्ड से चुनें";
+        case "repayment-amount": return "रुपये में भुगतान राशि";
       }
     }
     switch (pending.kind) {
@@ -175,6 +184,9 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
       case "supplier-name": return "Supplier name";
       case "order-supplier": return "Saved supplier name";
       case "order-transition-select": return "Order ID or supplier name";
+      case "order-status-select": return "Choose an order number";
+      case "customer-select": return "Choose a customer card";
+      case "repayment-amount": return "Repayment amount in rupees";
     }
   }
 
@@ -487,7 +499,10 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
     setWorkingOn("request");
     addMessage({ role: "user", text: `Confirm and record this basket · ${paymentMethod.toUpperCase()}` });
     try {
-      const items = draft.items.map((item) => ({ productId: z.uuid().parse(item.productId), quantity: item.quantity }));
+      const items = draft.items.map((item) => {
+        if (item.quantity === undefined || item.quantity === null || !item.productId) throw new Error("A list quantity or inventory match is unclear. Check the list again before recording a sale.");
+        return { productId: z.uuid().parse(item.productId), quantity: item.quantity };
+      });
       const response = await fetch("/api/assistant/confirm-sale", {
         method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": savedDraftId },
         body: JSON.stringify({ confirmed: true, items, paymentMethod, conversationId: conversationId ?? undefined, draftMessageId: savedDraftId }),
@@ -508,16 +523,19 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
 
   function chooseFile(file: File | undefined) {
     if (!file) return;
-    const isPdf = file.type === "application/pdf";
+    const isPdf = file.type === "application/pdf" || (!file.type && /\.pdf$/iu.test(file.name));
     const fileLimit = isPdf ? MAX_ATTACHMENT_SOURCE_BYTES : MAX_IMAGE_UPLOAD_BYTES;
-    if (file.size > fileLimit || file.size === 0 || !["image/jpeg", "image/png", "image/webp", "application/pdf"].includes(file.type)) {
+    const imageExtension = /\.(?:jpe?g|png|webp|heic|heif)$/iu.test(file.name);
+    const supportedType = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"].includes(file.type)
+      || (!file.type && (imageExtension || isPdf));
+    if (file.size > fileLimit || file.size === 0 || !supportedType) {
       setVoiceNotice(t("Choose an image under 4 MB or a PDF under 5 MB."));
       return;
     }
     if (attachment) URL.revokeObjectURL(attachment.preview.url);
     const url = URL.createObjectURL(file);
     objectUrls.current.push(url);
-    setAttachment({ file, preview: { name: file.name, kind: file.type === "application/pdf" ? "pdf" : "image", url } });
+    setAttachment({ file, preview: { name: file.name, kind: isPdf ? "pdf" : "image", url } });
     setVoiceNotice("");
   }
 
@@ -743,6 +761,17 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
               label={t("Selling price per")}
               actionLabel={t("Create & Add Stock")}
             />}
+            {index === messages.length - 1 && message.role === "assistant" && pending?.kind === "customer-select" && <div className="assistant-choice-cards" role="group" aria-label={t("Select the correct customer")}>
+              {pending.candidates.map((customer) => <button key={customer.id} type="button" onClick={() => void runPrompt(customer.customerCode)} disabled={busy}>
+                <strong>{customer.customerCode}</strong><span>{customer.maskedPhone ?? t("No verified phone")}</span>
+              </button>)}
+            </div>}
+            {index === messages.length - 1 && message.role === "assistant" && (pending?.kind === "order-transition-select" || pending?.kind === "order-status-select") && <div className="assistant-choice-cards order-choice-cards" role="group" aria-label={t("Select the purchase order")}>
+              {pending.candidates.map((order) => <button key={order.id} type="button" onClick={() => void runPrompt(order.orderNumber)} disabled={busy}>
+                <strong>{order.orderNumber}</strong><span>{order.supplier} · {new Intl.DateTimeFormat(locale === "hi" ? "hi-IN" : "en-IN", { timeZone: "Asia/Kolkata" }).format(new Date(order.orderDate))} · {t(order.status)}</span>
+                <small>{order.items.join(", ")}</small>
+              </button>)}
+            </div>}
             {message.attachment && <div className="conversation-attachment">{message.attachment.kind === "image" ? <Image unoptimized src={message.attachment.url} alt={`Preview of ${message.attachment.name}`} width={64} height={64} /> : <FileText size={26} aria-hidden="true" />}<span>{message.attachment.name}</span></div>}
             {message.result?.shoppingList && <ShoppingListResult draft={message.result.shoppingList} busy={busy} inactive={inactiveDrafts.includes(message.id)} onConfirm={(draft, payment) => void confirmSale(draft, payment, message.id)} />}
             {message.result?.state === "clarify" && <span className="clarification-hint">{t("Waiting for your reply · nothing has changed yet")}</span>}
@@ -769,9 +798,9 @@ export function AssistantWorkspace({ connected, providerMode, reasonerMode, voic
             <button className="assistant-mic" type="button" disabled={busy || !canUseVoice} aria-label={t(providerMode === "mock" ? "Play sample voice flow" : voiceState === "requesting_permission" ? "Cancel microphone permission request" : voiceState === "recording" ? "Stop recording" : "Start recording")} onClick={() => void toggleVoice()}>{voiceState === "recording" ? <Square size={17} aria-hidden="true" /> : <Mic size={20} aria-hidden="true" />}<span>{t(providerMode === "mock" ? "Sample" : voiceState === "requesting_permission" ? "Cancel" : voiceState === "recording" ? "Stop" : "Speak")}</span></button>
             {(voiceCaptureActive || voiceProcessingActive) && <button className="assistant-voice-cancel" type="button" onClick={cancelVoice} aria-label={t("Cancel voice recording")}><X size={18} aria-hidden="true" /></button>}
             <button className="assistant-send" type="submit" disabled={busy || historyLoading || Boolean(historyError) || (connected && !conversationId) || voiceInputLocked || (!input.trim() && !attachment)} aria-label={t("Send message")}><ArrowUp size={19} aria-hidden="true" /></button></form>
-          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
+          <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.heic,.heif" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           <input ref={pdfInput} type="file" accept="application/pdf,.pdf" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
-          <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
+          <input ref={cameraInput} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" capture="environment" className="sr-only" tabIndex={-1} onChange={(event) => { chooseFile(event.target.files?.[0]); event.target.value = ""; }} />
           {voiceNotice && <p className="composer-voice-notice" role="status">{t(voiceNotice)}</p>}
           {realVoice && !canUseVoice && <p className="composer-voice-notice" role="status">{t("Microphone is unavailable here. Add the server-side Gnani key or use a supported browser speech service; typing is always available.")}</p>}
           {offerBrowserFallback && browserSpeechAvailable && <button className="assistant-browser-voice-fallback" type="button" disabled={busy} onClick={() => void toggleVoice(true)}>{t("Use browser speech recognition")}</button>}

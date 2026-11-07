@@ -36,10 +36,14 @@ describe("Indian spoken quantities", () => {
 
   it("preserves the explicit per-kg price in a Hindi sale command", () => {
     expect(parseSpokenSale("ढाई किलो चीनी 40 रुपये किलो के हिसाब से बेच दो")).toEqual({
-      product: "चीनी", quantity: 2.5, unit: "kg", unitPrice: 40, priceUnit: "kg",
+      product: "sugar", quantity: 2.5, unit: "kg", unitPrice: 40, priceUnit: "kg",
     });
     expect(parseSpokenSale("पाव तेल देना")).toBeNull();
-    expect(parseSpokenSale("पाव किलो चीनी बेच दो")).toEqual({ product: "चीनी", quantity: 0.25, unit: "kg" });
-    expect(parseSpokenSale("ढाई किलो चावल बेच दो")).toEqual({ product: "चावल", quantity: 2.5, unit: "kg" });
+    expect(parseSpokenSale("पाव किलो चीनी बेच दो")).toEqual({ product: "sugar", quantity: 0.25, unit: "kg" });
+    expect(parseSpokenSale("ढाई किलो चावल बेच दो")).toEqual({ product: "rice", quantity: 2.5, unit: "kg" });
+    expect(parseSpokenSale("आज 5 पैकेट दूध बिक गए हैं")).toEqual({ product: "milk", quantity: 5, unit: "packet" });
+    expect(parseSpokenSale("Aaj 5 packet milk sell hue hain")).toEqual({ product: "milk", quantity: 5, unit: "packet" });
+    expect(parseSpokenSale("Today we sold five packets of Maggi")).toEqual({ product: "Maggi", quantity: 5, unit: "packet" });
+    expect(parseSpokenSale("5 packets of Maggi sold today")).toEqual({ product: "Maggi", quantity: 5, unit: "packet" });
   });
 });

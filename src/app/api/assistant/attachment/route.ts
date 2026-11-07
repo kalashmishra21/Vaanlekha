@@ -115,7 +115,10 @@ export async function POST(request: Request) {
       try {
         const config = readProviderConfig();
         understanding = await new GeminiAttachmentExtractor(googleKey, config.GEMINI_MODEL).extract({
-          images,
+          // Native PDF understanding preserves document semantics. The page
+          // renders remain private and are used only if the configured image
+          // fallback is needed after a retryable Gemini failure.
+          images: verifiedPdf ? [] : images,
           ...(verifiedPdf ? { pdfUri: verifiedPdf.uri } : {}),
           question: questionResult.data,
         });
@@ -170,6 +173,6 @@ export async function POST(request: Request) {
       ? error.message : "The list could not be read safely. Check the file and try again. No sale was created.";
     return await finish({ state: "failed", title: "List check failed", intent: "inventory.checkList", detail: "No sale was created.", reply: message }, message.includes("not configured") ? 503 : 422);
   } finally {
-    if (fileName && googleKey && verifiedPdf) await deleteGeminiFile(googleKey, fileName).catch(() => undefined);
+    if (fileName && googleKey) await deleteGeminiFile(googleKey, fileName).catch(() => undefined);
   }
 }

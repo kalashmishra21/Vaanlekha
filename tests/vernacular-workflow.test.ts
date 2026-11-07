@@ -4,9 +4,16 @@ import { BusinessToolExecutor, type BusinessRepository } from "../src/server/too
 
 const sugar = { id: "11111111-1111-4111-8111-111111111114", name: "चीनी", unit: "kg", currentStock: 10, sellingPrice: 40 };
 function repository() {
-  const adjustStock = vi.fn(async (_id: string, delta: number) => sugar.currentStock + delta);
-  const recordSale = vi.fn();
-  return { source: { products: async () => [sugar], adjustStock, recordSale } as unknown as BusinessRepository, adjustStock, recordSale };
+  const product = { ...sugar };
+  const adjustStock = vi.fn(async (_id: string, delta: number) => {
+    product.currentStock += delta;
+    return product.currentStock;
+  });
+  const recordSale = vi.fn(async (items: { productId: string; quantity: number; expectedUnitPrice?: number }[]) => {
+    product.currentStock -= items.reduce((sum, item) => sum + item.quantity, 0);
+    return { saleId: "11111111-1111-4111-8111-111111111115", total: 100 };
+  });
+  return { source: { products: async () => [product], adjustStock, recordSale } as unknown as BusinessRepository, adjustStock, recordSale };
 }
 
 describe("vernacular assistant actions", () => {
@@ -18,15 +25,15 @@ describe("vernacular assistant actions", () => {
     const unrelated = await provider.reason({ text: "25 ki ek samosa", pending });
     expect(unrelated).not.toMatchObject({ tool: { intent: "product.create", arguments: { name: "Test Kulfi" } } });
   });
-  it("drafts 2.5 kg sugar at ₹40/kg for ₹100 without saving", async () => {
+  it("records a clear 2.5 kg Hindi sale once and reports the saved inventory", async () => {
     const proposed = await new MockAIProvider().reason({ text: "ढाई किलो चीनी 40 रुपये किलो के हिसाब से बेच दो" });
-    expect(proposed).toMatchObject({ kind: "tool_call", tool: { intent: "sales.prepareSpoken" } });
+    expect(proposed).toMatchObject({ kind: "tool_call", tool: { intent: "sales.recordSpoken" } });
     if (proposed.kind !== "tool_call") throw new Error("Expected spoken sale proposal");
     const fake = repository();
     const result = await new BusinessToolExecutor(fake.source).execute(proposed.tool);
-    expect(result).toMatchObject({ ok: true, data: { draft: { source: "spoken-sale", estimatedTotal: 100,
-      canConfirm: true, items: [{ quantity: 2.5, unit: "kg", lineTotal: 100 }] } } });
-    expect(fake.recordSale).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ ok: true, data: { intent: "sales.recordSpoken", saleId: "11111111-1111-4111-8111-111111111115",
+      total: 100, stocks: [{ product: "चीनी", unit: "kg", stock: 7.5 }] } });
+    expect(fake.recordSale).toHaveBeenCalledTimes(1);
   });
 
   it("converts an explicit 250 g addition to 0.25 kg and saves without an extra confirmation", async () => {

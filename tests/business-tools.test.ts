@@ -15,7 +15,7 @@ function fakeRepository() {
     { type: "gave", amount: 460 }, { type: "received", amount: 200 },
   ];
   const productRows = [{ id: maggiId, name: "Maggi", unit: "packet", currentStock: stock, sellingPrice: 15 }];
-  const customers = [{ id: "rahul-id", name: "Rahul Sharma" }];
+  const customers: { id: string; name: string; customerCode?: string; phone?: string | null }[] = [{ id: "rahul-id", name: "Rahul Sharma" }];
   const orders: { id: string; supplier: string; status: "draft" | "placed" | "received" | "cancelled"; items: string[] }[] = [];
   const repository: BusinessRepository = {
     async products() { return productRows; },
@@ -118,6 +118,13 @@ describe("business boundary", () => {
     expect(todayInIndia(new Date("2026-10-06T19:00:00Z"))).toBe("2026-10-07");
     expect(todayInIndia(new Date("2026-10-07T18:29:59.999Z"))).toBe("2026-10-07");
     expect(todayInIndia(new Date("2026-10-07T18:30:00Z"))).toBe("2026-10-08");
+  });
+
+  it("reports sales-history dates in India time rather than the stored UTC date", () => {
+    const result = describeToolResult({ ok: true, data: { intent: "sales.getHistory", sales: [
+      { saleId: "sale-1", date: "2026-11-06T20:00:00.000Z", total: 50, paymentMethod: "cash" },
+    ] } });
+    expect(result.reply).toContain("2026-11-07");
   });
 
   it("returns repository sales data for Hindi, Hinglish and English today requests", async () => {
@@ -230,6 +237,21 @@ describe("business boundary", () => {
     expect(result).toMatchObject({ ok: true, data: { balance: 360 } });
   });
 
+  it("warns that an entry may be saved if post-transaction ledger verification fails", async () => {
+    const fake = fakeRepository();
+    const readLedger = fake.repository.ledger.bind(fake.repository);
+    let reads = 0;
+    fake.repository.ledger = vi.fn(async (customerId) => {
+      reads++;
+      if (reads > 1) throw new Error("Read unavailable");
+      return readLedger(customerId);
+    });
+    const result = await new BusinessToolExecutor(fake.repository).execute({
+      intent: "khata.addEntry", arguments: { customer: "Sharma ji", type: "gave", amountRupees: 100 },
+    });
+    expect(result).toMatchObject({ ok: false, error: "The khata entry may have been saved for Rahul Sharma. Check the ledger before retrying." });
+  });
+
   it("creates a customer and opening udhaar through the trusted repository", async () => {
     const fake = fakeRepository();
     const result = await executeValidatedToolCall({ intent: "khata.openAccount", arguments: { customer: "Nandini", amountRupees: 100 } }, new BusinessToolExecutor(fake.repository));
@@ -256,7 +278,7 @@ describe("business boundary", () => {
     expect((await fake.repository.products()).filter((product) => product.name === "Bread")).toHaveLength(1);
   });
 
-  it("routes an existing matching customer to an entry and a missing one through explicit permission", async () => {
+  it("routes an existing customer to its ledger and creates a missing debtor in one explicit transaction", async () => {
     const fake = fakeRepository();
     fake.getCustomers().push({ id: "mahi-id", name: "Mahi Patel" });
     const executor = new BusinessToolExecutor(fake.repository);
@@ -265,24 +287,35 @@ describe("business boundary", () => {
     expect(existing).toMatchObject({ ok: true, data: { customer: "Mahi Patel", balance: 360 } });
 
     const missingCall: ToolCall = { intent: "khata.addEntry", arguments: { customer: "Nandini", type: "gave", amountRupees: 100 } };
-    const needsPermission = await executor.execute(missingCall);
-    expect(needsPermission).toMatchObject({ ok: false, clarification: { pending: { kind: "khata-create-confirm", customer: "Nandini", amountRupees: 100 } } });
-    expect(fake.getCustomers().some((customer) => customer.name === "Nandini")).toBe(false);
-    if (!("clarification" in needsPermission)) throw new Error("Expected account confirmation");
-    const confirmed = await new MockAIProvider().reason({ text: "haan", pending: needsPermission.clarification.pending });
-    expect(confirmed).toMatchObject({ kind: "tool_call", tool: { intent: "khata.openAccount", arguments: { customer: "Nandini", amountRupees: 100 } } });
-    if (confirmed.kind !== "tool_call") throw new Error("Expected opening-account call");
-    expect(await executor.execute(confirmed.tool)).toMatchObject({ ok: true, data: { customer: "Nandini", balance: 100 } });
+    const saved = await executor.execute(missingCall);
+    expect(saved).toMatchObject({ ok: true, data: { intent: "khata.openAccount", customer: "Nandini", balance: 100, automatic: true } });
     expect(fake.getCustomers().some((customer) => customer.name === "Nandini")).toBe(true);
+    expect(fake.getEntries()).toContainEqual({ type: "gave", amount: 100 });
   });
 
-  it("does not guess among ambiguous customer names", async () => {
+  it("returns a customer selection card and uses the selected UUID for the ledger read", async () => {
     const fake = fakeRepository();
-    fake.getCustomers().push({ id: "mahi-a", name: "Mahi Sharma" }, { id: "mahi-b", name: "Mahi Verma" });
-    const result = await new BusinessToolExecutor(fake.repository).execute({
+    const firstId = "11111111-1111-4111-8111-111111111201";
+    const secondId = "11111111-1111-4111-8111-111111111202";
+    fake.getCustomers().push(
+      { id: firstId, name: "Mahi Sharma", customerCode: "VL-CU-000101", phone: "9876543210" },
+      { id: secondId, name: "Mahi Verma", customerCode: "VL-CU-000102", phone: "9123456789" },
+    );
+    const executor = new BusinessToolExecutor(fake.repository);
+    const result = await executor.execute({
       intent: "khata.getBalance", arguments: { customer: "Mahi" },
     });
-    expect(result).toMatchObject({ ok: false, error: "More than one record matches that name. Use the full name." });
+    expect(result).toMatchObject({ ok: false, clarification: { pending: { kind: "customer-select", candidates: [
+      { id: firstId, customerCode: "VL-CU-000101", maskedPhone: "••••••3210" },
+      { id: secondId, customerCode: "VL-CU-000102", maskedPhone: "••••••6789" },
+    ] } } });
+    if (!("clarification" in result) || result.clarification.pending.kind !== "customer-select") throw new Error("Expected customer disambiguation");
+    const selected = await new MockAIProvider().reason({ text: "VL-CU-000102", pending: result.clarification.pending });
+    expect(selected).toMatchObject({ kind: "tool_call", tool: { intent: "customer.getBalanceById", arguments: { customerId: secondId } } });
+    if (selected.kind !== "tool_call") throw new Error("Expected exact customer id selection");
+    const ledgerRead = vi.spyOn(fake.repository, "ledger");
+    await executor.execute(selected.tool);
+    expect(ledgerRead).toHaveBeenCalledWith(secondId);
   });
 
   it("requires confirmation for owner-scoped order transitions and rejects a stale confirmation", async () => {
@@ -334,6 +367,23 @@ describe("business boundary", () => {
     expect(saved).toMatchObject({ ok: true, data: { total: 30 } });
     expect(fake.getStock()).toBe(18);
     expect(toolCallSchema.safeParse({ intent: "sales.recordConfirmedBasket", arguments: { items: [{ productId, quantity: 0 }], paymentMethod: "cash" } }).success).toBe(false);
+  });
+
+  it("does not report a spoken sale as absent when stock read-back fails after the sale transaction", async () => {
+    const fake = fakeRepository();
+    const readProducts = fake.repository.products.bind(fake.repository);
+    let reads = 0;
+    fake.repository.products = async () => {
+      reads++;
+      if (reads > 1) throw new Error("Read unavailable");
+      return readProducts();
+    };
+    const result = await new BusinessToolExecutor(fake.repository).execute({
+      intent: "sales.recordSpoken", arguments: { items: [{ product: "Maggi", quantity: 2, unit: "packet" }] },
+    });
+    expect(result).toMatchObject({ ok: false, error: expect.stringMatching(/^Sale may have been saved \(reference /) });
+    expect(describeToolResult(result).title).toBe("Sale needs verification");
+    expect(fake.getStock()).toBe(18);
   });
 
   it("returns an authoritative daily sales summary", async () => {

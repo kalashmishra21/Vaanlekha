@@ -14,8 +14,8 @@ describe("Stage 16 pending-request boundaries", () => {
     { pending: { kind: "supplier-name" }, text: "what is the time" },
     { pending: { kind: "order-supplier", items: [{ product: "Maggi", quantity: 10 }] }, text: "Aaj ki sale batao" },
     { pending: { kind: "order-transition-select", query: "order", action: "place", candidates: [
-      { id: "11111111-1111-4111-8111-111111111111", label: "North Market", status: "draft" },
-      { id: "22222222-2222-4222-8222-222222222222", label: "Everyday Supply", status: "draft" },
+      { id: "11111111-1111-4111-8111-111111111111", orderNumber: "VL-PO-2026-000001", supplier: "North Market", orderDate: "2026-11-01T00:00:00.000Z", items: ["Maggi × 2"], status: "draft" },
+      { id: "22222222-2222-4222-8222-222222222222", orderNumber: "VL-PO-2026-000002", supplier: "Everyday Supply", orderDate: "2026-11-02T00:00:00.000Z", items: ["Milk × 3"], status: "draft" },
     ] }, text: "#" },
   ] as const)("does not complete a pending request with an unrelated message: $text", async ({ pending, text }) => {
     expect(shouldContinuePending(pending, text)).toBe(false);

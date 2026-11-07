@@ -84,18 +84,25 @@ export function quantityLineTotal(quantity: number, rupeesPerUnit: number): numb
 }
 
 export function parseSpokenSale(raw: string): SpokenSale | null {
-  if (!/(?:बेच|bech|sell)/iu.test(raw)) return null;
-  const amount = parseSpokenQuantity(raw);
+  if (!/(?:बेच|बिके|बिकी|बिका|बिक\s*(?:गया|गये|गए|गयी|गई|चुका|चुकी|चुके)|bech|bik(?:e|i)?(?:\s+(?:gaya|gaye|gayi))?|bikri\s+(?:hui|hue)|sell|sold|sale\s+(?:hui|hue|ho))/iu.test(raw)) return null;
+  let command = normalizeMerchantText(raw).replace(/^(?:aaj|today|now)\s+/iu, "").replace(/\s+(?:today|aaj)$/iu, "");
+  const actionFirst = /^(?:we\s+)?sold\s+(.+?)(?:\s+(?:today|aaj))?$/iu.exec(command);
+  if (actionFirst) command = actionFirst[1].replace(/\bof\s+/iu, "") + " sold";
+  const amount = parseSpokenQuantity(command);
   if (!amount?.unit) return null;
+  const canonicalProduct = (value: string) => value.trim()
+    .replace(/\b(?:maggie|maggi)\b/giu, "Maggi")
+    .replace(/मैगी/gu, "Maggi");
   const match = /^(.+?)\s+(\d+(?:\.\d{1,2})?|[a-z]+)\s*(?:rupaye|rupees?|rs\.?|inr|₹)\s+(.+)$/iu.exec(amount.rest);
   if (!match) {
-    const simple = /^(.+?)\s+(?:बेच\s*(?:दो|do)|बेचो|bech\s*do|sell(?:\s+it)?)$/iu.exec(amount.rest);
-    return simple?.[1]?.trim() ? { product: simple[1].trim(), quantity: amount.quantity, unit: amount.unit } : null;
+    const simple = /^(.+?)\s+(?:(?:बेच\s*(?:दो|do|दिया|diya|दिए|diye)|बेचो|बेचें|बिक\s*(?:गया|गये|गए|गयी|गई|चुका|चुकी|चुके)|bech\s*(?:do|diya|diye)|bik(?:e|i)?(?:\s+(?:gaya|gaye|gayi))?|bikri\s+(?:hui|hue)|sell(?:\s+it)?|sold)(?:\s+(?:hue|hui|hain|have|been|ho\s+gaya|gaya|gaye))*)$/iu.exec(amount.rest);
+    const product = simple?.[1]?.trim().replace(/^of\s+/iu, "");
+    return product ? { product: canonicalProduct(product), quantity: amount.quantity, unit: amount.unit } : null;
   }
   const unitPrice = /^\d/u.test(match[2]) ? Number(match[2]) : parseMerchantNumber(match[2]);
   const priceUnit = parseMerchantUnit(match[3]);
   if (unitPrice === null || unitPrice <= 0 || !hasDecimalPlaces(unitPrice, 2) || !priceUnit) return null;
-  return { product: match[1].trim(), quantity: amount.quantity, unit: amount.unit, unitPrice, priceUnit };
+  return { product: canonicalProduct(match[1]), quantity: amount.quantity, unit: amount.unit, unitPrice, priceUnit };
 }
 
 export function convertUnitPrice(rupees: number, from: MerchantUnit, to: MerchantUnit): number | null {

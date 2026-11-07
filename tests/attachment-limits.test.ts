@@ -3,7 +3,9 @@ import { isImageUploadWithinLimit, MAX_IMAGE_UPLOAD_BYTES } from "@/lib/assistan
 
 describe("Vercel-safe image upload limits", () => {
   it("allows an upload up to the aggregate 4 MB limit", () => {
+    expect(isImageUploadWithinLimit([{ size: 800_000 }])).toBe(true);
     expect(isImageUploadWithinLimit([{ size: 1_500_000 }, { size: 2_500_000 }])).toBe(true);
+    expect(isImageUploadWithinLimit([{ size: MAX_IMAGE_UPLOAD_BYTES }])).toBe(true);
   });
 
   it("rejects files or totals that can exceed the function body limit", () => {

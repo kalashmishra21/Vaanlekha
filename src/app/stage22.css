@@ -280,6 +280,13 @@ html[data-theme="light"] .workspace-shell .workspace-sidebar-bottom .workspace-v
 .pending-product-price-row button { min-height: 41px; padding: 8px 11px; border: 0; border-radius: 8px; background: var(--ws-deep); color: var(--ws-deep-ink); font-size: 11px; font-weight: 750; cursor: pointer; }
 .pending-product-price-row button:disabled { cursor: wait; opacity: .6; }
 .pending-product-price > small { color: var(--ws-muted); font-size: 10px; line-height: 1.4; }
+.assistant-choice-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr)); gap: 8px; margin-top: 10px; }
+.assistant-choice-cards button { display: grid; gap: 3px; min-width: 0; padding: 10px 11px; border: 1px solid var(--ws-line); border-radius: 9px; background: var(--ws-surface); color: var(--ws-ink); text-align: left; cursor: pointer; }
+.assistant-choice-cards button:hover:not(:disabled), .assistant-choice-cards button:focus-visible { border-color: var(--ws-positive); outline: 2px solid color-mix(in srgb, var(--ws-positive) 24%, transparent); outline-offset: 1px; }
+.assistant-choice-cards button:disabled { cursor: wait; opacity: .6; }
+.assistant-choice-cards strong { overflow-wrap: anywhere; color: var(--ws-accent); font-size: 12px; }
+.assistant-choice-cards span, .assistant-choice-cards small { color: var(--ws-muted); font-size: 10px; line-height: 1.4; }
+@media (max-width: 560px) { .assistant-choice-cards { grid-template-columns: 1fr; } }
 @media (max-width: 600px) {
   .conversation-feed { padding: 16px 14px 28px; }
   .conversation-feed .conversation-entry.user .conversation-body { max-width: 94%; }

@@ -8,8 +8,10 @@ const hindiWords: ReadonlyArray<[RegExp, string]> = [
   [/उधार/gu, "udhaar"], [/\budhhar\b|\budhar\b/giu, "udhaar"], [/खाते/gu, "khate"], [/खाता/gu, "khata"], [/में/gu, "mein"],
   [/नाम/gu, "naam"], [/नया/gu, "naya"], [/नई/gu, "nayi"], [/इन्वेंटरी/gu, "inventory"],
   [/शर्मा/gu, "Sharma"], [/जी/gu, "ji"], [/माल/gu, "maal"],
+  [/दूध/gu, "milk"], [/चीनी/gu, "sugar"], [/तेल/gu, "oil"], [/चावल/gu, "rice"], [/आटा/gu, "flour"], [/नमक/gu, "salt"], [/चाय/gu, "tea"], [/रोटी/gu, "bread"],
+  [/बिक\s*(?:गए|गये|गयी|गई|चुके|चुकी|चुका)/gu, "sold"], [/बिके|बिकी|बिका|बेचा|बेचे|बेची|बेचो|बेचें/gu, "sold"],
   [/जोड़\s*दो/gu, "add kar do"], [/जोड़(?:ो)?/gu, "add"], [/ऐड|एड/gu, "add"], [/कर\s*दो/gu, "kar do"], [/करो/gu, "karo"],
-  [/दाल(?:ो)?/gu, "daal"], [/ने/gu, "ne"], [/वापस/gu, "wapas"], [/दिए|दिया/gu, "diye"],
+  [/दाल(?:ो)?/gu, "daal"], [/ने/gu, "ne"], [/वापस/gu, "wapas"], [/दिए|दिया/gu, "diye"], [/हुए/gu, "hue"], [/हुई/gu, "hui"], [/हैं/gu, "hain"],
   [/आज/gu, "aaj"], [/बिक्री/gu, "sales"], [/सेल/gu, "sale"], [/कुल/gu, "total"],
   [/बताओ/gu, "batao"], [/कितना/gu, "kitna"], [/की/gu, "ki"], [/का/gu, "ka"], [/के/gu, "ke"], [/को/gu, "ko"],
   [/स्टॉक/gu, "stock"], [/ब्रेड/gu, "bread"],
@@ -147,6 +149,28 @@ function parsePendingProductPrice(text: string, pending: Extract<PendingClarific
 
 function confirmPending(pending: PendingClarification, text: string): ReasoningResult | null {
   const normalized = normalizeMerchantText(text);
+  if (pending.kind === "customer-select") {
+    const choice = normalized.replace(/^(?:customer|code|#)\s*/iu, "").trim().toLocaleLowerCase("en-IN");
+    const matches = pending.candidates.filter((candidate) => candidate.customerCode.toLocaleLowerCase("en-IN") === choice
+      || candidate.id.toLocaleLowerCase("en-US") === choice);
+    if (matches.length !== 1) return clarification("Choose one of the customer codes shown in the selection card. No ledger action was taken.", pending);
+    const selected = matches[0];
+    switch (pending.continuation.kind) {
+      case "khata-entry": return tool("customer.addEntryById", { customerId: selected.id,
+        type: pending.continuation.type, amountRupees: pending.continuation.amountRupees,
+        ...(pending.continuation.note ? { note: pending.continuation.note } : {}) });
+      case "khata-balance": return tool("customer.getBalanceById", { customerId: selected.id });
+      case "khata-history": return tool("customer.getHistoryById", { customerId: selected.id });
+      case "credit-sale": return tool("sales.recordCreditById", { customerId: selected.id, items: pending.continuation.items });
+    }
+  }
+  if (pending.kind === "repayment-amount") {
+    const money = parseMoney(text);
+    if (!money || money.currency === "other" || money.amount <= 0 || money.amount > pending.outstanding) {
+      return clarification(`Enter a repayment in rupees up to the current outstanding amount of ₹${pending.outstanding}, or cancel. Nothing was saved.`, pending, "khata.addEntry");
+    }
+    return tool("customer.addEntryById", { customerId: pending.customerId, type: "received", amountRupees: money.amount });
+  }
   if (pending.kind === "open-account-amount") {
     const money = parseMoney(text);
     if (!money || money.currency === "other") return clarification(`Enter an amount in rupees for ${pending.customer}'s opening khata. Nothing was saved.`, pending, "khata.openAccount");
@@ -207,13 +231,20 @@ function confirmPending(pending: PendingClarification, text: string): ReasoningR
   if (pending.kind === "order-transition-select") {
     const query = normalized.replace(/^(?:order|po|#)\s*/iu, "").trim();
     const matches = pending.candidates.filter((candidate) => candidate.id.toLocaleLowerCase().startsWith(query.toLocaleLowerCase())
-      || candidate.label.toLocaleLowerCase("en-IN") === query.toLocaleLowerCase("en-IN"));
-    if (matches.length !== 1) return clarification("Use one of the purchase-order IDs or supplier names shown in the previous message. Nothing was changed.", pending, "orders.transition");
+      || candidate.orderNumber.toLocaleLowerCase("en-IN") === query.toLocaleLowerCase("en-IN"));
+    if (matches.length !== 1) return clarification("Choose one exact order number from the selection card. Nothing was changed.", pending, "orders.transition");
     const selected = matches[0];
     if (!canTransition(selected.status, pending.action)) return { kind: "unsupported", message: `That order is already ${selected.status}; it cannot be ${transitionPast(pending.action)}.` };
-    return clarification(`Confirm ${pending.action} for ${selected.label}, currently ${selected.status}? Reply yes or cancel. Nothing was changed.`, {
-      kind: "order-transition-confirm", orderId: selected.id, orderLabel: selected.label, currentStatus: selected.status, action: pending.action,
+    return clarification(`Confirm ${pending.action} for ${selected.orderNumber} (${selected.supplier}), currently ${selected.status}? Reply yes or cancel. Nothing was changed.`, {
+      kind: "order-transition-confirm", orderId: selected.id, orderLabel: `${selected.orderNumber} · ${selected.supplier}`, currentStatus: selected.status, action: pending.action,
     }, "orders.transition");
+  }
+  if (pending.kind === "order-status-select") {
+    const query = normalized.replace(/^(?:order|po|#)\s*/iu, "").trim().toLocaleLowerCase("en-IN");
+    const matches = pending.candidates.filter((candidate) => candidate.id.toLocaleLowerCase() === query
+      || candidate.orderNumber.toLocaleLowerCase("en-IN") === query);
+    if (matches.length !== 1) return clarification("Choose one exact purchase-order number from the selection card. No order was changed.", pending, "orders.getStatus");
+    return tool("orders.getStatusById", { orderId: matches[0].id });
   }
   return null;
 }
@@ -255,6 +286,15 @@ function parseKhataAdd(text: string): ReasoningResult | null {
   return tool("khata.addEntry", { customer, type: "gave", amountRupees: money.amount });
 }
 
+function parseNewCreditEvent(text: string): ReasoningResult | null {
+  const normalized = normalizeMerchantText(text);
+  const match = /^(.+?)\s+ne\s+(.+?)\s+(?:ka\s+)?(?:udhaar|khata)\s+(?:liya|li|lena|le liya)$/iu.exec(normalized);
+  if (!match) return null;
+  const money = parseMoney(match[2]);
+  if (!money || money.currency === "other" || money.amount < 1 || money.amount > 10_000_000) return null;
+  return tool("khata.addEntry", { customer: titleName(match[1]), type: "gave", amountRupees: money.amount });
+}
+
 function parseNewProduct(text: string): ReasoningResult | null {
   const normalized = normalizeMerchantText(text);
   const isNew = /\b(?:new|naya|nayi)\s+(?:inventory|product|item|stock|maal)\b|\bnew inventory\b/iu.test(normalized);
@@ -290,8 +330,12 @@ function parseNewProduct(text: string): ReasoningResult | null {
 
 function parseOrderStatus(text: string): ReasoningResult | null {
   const normalized = normalizeMerchantText(text);
+  const generic = /^(?:is\s+)?(?:(?:this|that|the)\s+)?(?:purchase\s+)?order\s+(?:ka\s+)?status(?:\s+(?:batao|tell me))?$/iu.test(normalized)
+    || /^(?:what is|tell me)\s+(?:the\s+)?status\s+of\s+(?:(?:this|that|the)\s+)?(?:purchase\s+)?order$/iu.test(normalized);
+  if (generic) return tool("orders.getStatus", { order: "this order" });
   const match = /^(?:purchase\s+)?order\s+(?:status\s+(?:of\s+)?)?(.+?)\s+(?:ka\s+)?status(?:\s+batao)?$/iu.exec(normalized)
-    ?? /^(.+?)\s+ka\s+(?:purchase\s+)?order\s+(?:status|kya hai|kahan hai)(?:\s+batao)?$/iu.exec(normalized);
+    ?? /^(.+?)\s+ka\s+(?:purchase\s+)?order\s+(?:status|kya hai|kahan hai)(?:\s+batao)?$/iu.exec(normalized)
+    ?? /^is\s+order\s+(.+?)\s+ka\s+status\s+(?:batao|tell me)$/iu.exec(normalized);
   if (!match) return null;
   return tool("orders.getStatus", { order: titleName(match[1].replace(/^(?:status of|of)\s+/i, "")) });
 }
@@ -319,7 +363,10 @@ export function pendingQuestion(pending: PendingClarification): string {
     case "supplier-name": return "What is the supplier's name? Nothing has been added yet.";
     case "order-supplier": return "Which saved supplier should I use for this purchase-order draft? Nothing has been created yet.";
     case "order-transition-confirm": return `Confirm ${pending.action} for ${pending.orderLabel}, currently ${pending.currentStatus}? Reply yes or cancel.`;
-    case "order-transition-select": return `Which order do you mean by “${pending.query}”? Use one of: ${pending.candidates.map((item) => `${item.label} (#${item.id.slice(0, 8)}, ${item.status})`).join(", ")}.`;
+    case "order-transition-select": return `Which order do you mean by “${pending.query}”? Choose an order number from the cards.`;
+    case "order-status-select": return `Which order do you mean by “${pending.query}”? Choose an order number from the cards.`;
+    case "customer-select": return `Several customers match ${pending.query}. Choose the correct customer code from the cards.`;
+    case "repayment-amount": return `${pending.customer}'s current outstanding balance is ₹${pending.outstanding}. Enter a repayment up to that amount.`;
   }
 }
 
@@ -333,7 +380,10 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
   if (isConversationOnlyMessage(rawText)) return { kind: "unsupported", message: "Hello! Tell me what you would like to check or change in your store." };
   if (isAmbiguousMerchantText(rawText)) return clarification("I am not sure I heard the request clearly. Please repeat the item, action and amount. Nothing was changed.");
   const spokenSale = parseSpokenSale(rawText);
-  if (spokenSale) return tool("sales.prepareSpoken", spokenSale);
+  if (spokenSale) return tool("sales.recordSpoken", { items: [{
+    product: canonicalProductName(spokenSale.product), quantity: spokenSale.quantity, unit: spokenSale.unit,
+    ...(spokenSale.unitPrice !== undefined ? { unitPrice: spokenSale.unitPrice, priceUnit: spokenSale.priceUnit } : {}),
+  }] });
   const spokenQuantity = parseSpokenQuantity(rawText);
   if (spokenQuantity && !spokenQuantity.unit && /(?:तेल|oil)/iu.test(spokenQuantity.rest) && /(?:देना|दो|do|give|sell|बेच)/iu.test(spokenQuantity.rest)) {
     return clarification("पाव तेल किस माप में चाहिए—250 ml, 250 g, या कोई और मात्रा? कृपया मात्रा, यूनिट और काम (बिक्री या स्टॉक) साफ़ बताइए। कुछ भी सेव नहीं हुआ।");
@@ -351,6 +401,8 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
 
   const khataAdd = parseKhataAdd(rawText);
   if (khataAdd) return khataAdd;
+  const newCreditEvent = parseNewCreditEvent(rawText);
+  if (newCreditEvent) return newCreditEvent;
 
   const writeKhata = /^(.+?)\s+ko\s+(.+?)\s+rupaye\s+udhaar\s+likh\s+do$/iu.exec(text);
   if (writeKhata) {
@@ -380,6 +432,8 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
   }
   const balance = /^(.+?)\s+ka\s+kitna\s+udhaar\s+hai$/iu.exec(text);
   if (balance) return tool("khata.getBalance", { customer: titleName(balance[1]) });
+  const khataHistory = /^(.+?)\s+(?:ka\s+)?(?:khata|udhaar)\s+(?:history|ledger|hisab|hisaab|transactions?)\s+(?:dikhao|batao|show)$/iu.exec(text);
+  if (khataHistory) return tool("khata.getHistory", { customer: titleName(khataHistory[1]) });
   const englishBalance = /^how much does\s+(.+?)\s+owe(?:\s+(?:us|the shop))?$/iu.exec(text);
   if (englishBalance) return tool("khata.getBalance", { customer: titleName(englishBalance[1]) });
 
@@ -421,7 +475,23 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
 
   if (/^(?:low[- ]stock items? ki reorder list bana do|reorder suggestions? batao|reorder list|low stock batao)$/iu.test(text))
     return tool("inventory.getReorderSuggestions", {});
+  const indiaMonth = today.slice(0, 7);
+  if (/\b(?:this month|monthly sales|sales this month|is mahine ki sale|iss mahine ki bikri|mahine ki sales)\b/iu.test(text))
+    return tool("sales.getMonthlySummary", { month: indiaMonth });
+  if (/\b(?:sales? history|recent sales|sale history|bikri ka record|purani sales)\b/iu.test(text))
+    return tool("sales.getHistory", {});
+  if (/\b(?:business|store|shop|dukaan|vyapar)\b/iu.test(text) && /\b(?:summary|overview|report|haal)\b/iu.test(text))
+    return tool("reports.getSummary", {});
+  if (/^(?:customers? (?:dikhao|batao|list)|customer list|show customers|list customers|grahak dikhao)$/iu.test(text))
+    return tool("customer.list", {});
   if (/^(?:suppliers? (?:dikhao|batao)|supplier list|show suppliers)$/iu.test(text)) return tool("supplier.list", {});
+  if (/\b(?:active|chalu)\b/iu.test(text) && /\b(?:suppliers?|vendors?)\b/iu.test(text)) return tool("supplier.listActive", {});
+  const supplierOrders = /^(.+?)\s+(?:supplier|vendor)(?: ke)?\s+(?:pending\s+)?orders?\s+(?:dikhao|batao|show)$/iu.exec(text);
+  if (supplierOrders) return tool("supplier.getOrders", { supplier: titleName(supplierOrders[1]) });
+  const supplierDetails = /^(.+?)\s+(?:supplier|vendor)\s+(?:ka\s+)?(?:phone|number|contact|details?)\s+(?:batao|dikhao|show|tell)$/iu.exec(text);
+  if (supplierDetails) return tool("supplier.getDetails", { supplier: titleName(supplierDetails[1]) });
+  const productSupplier = /^(.+?)\s+ka\s+supplier\s+(?:kaun|koun|who)(?:\s+hai)?$/iu.exec(text);
+  if (productSupplier) return tool("supplier.forProduct", { product: titleName(productSupplier[1]) });
   if (/(?:\bsuppliers?\b|सप्लायर|आपूर्तिकर्ता)/iu.test(text)
     && /(?:\b(?:list|show|which|who|batao|dikhao)\b|कौन|सूची|दिखाओ|बताओ)/iu.test(text)
     && !/(?:\b(?:add|create|remove|delete|order|payment)\b|जोड़|हटा|ऑर्डर|भुगतान)/iu.test(text))
@@ -432,7 +502,7 @@ export function reasonMerchantCommand(rawText: string, today: string): Reasoning
   if (/^(?:supplier add|add supplier)$/iu.test(text)) return clarification("What is the supplier's name? Nothing has been added yet.", { kind: "supplier-name" }, "supplier.create");
   if (/^(?:open orders? dikhao|purchase orders? dikhao|orders? dikhao|show (?:open )?orders?)$/iu.test(text)) return tool("orders.getOpen", {});
 
-  if (/^(?:what(?:'s| is| are) today['’]?s? (?:total )?sales?|tell me today['’]?s? (?:total )?sales?|today['’]?s? (?:total )?sales?(?: batao| dikhao)?|today['’]?s? sales summary|aaj ki (?:total )?(?:sale|sales|bikri) (?:batao|dikhao))$/iu.test(text))
+  if (/^(?:(?:what(?:'s| is| are) |tell me )?(?:today|aaj)(?:['’]?s)? (?:ki )?(?:total )?(?:sale|sales|bikri)(?: summary)?(?: (?:batao|dikhao|tell me))?)$/iu.test(text))
     return tool("sales.getDailySummary", { date: today });
 
   const bareProduct = /^(.+)\s+(\d+|[a-z]+(?:\s+sau)?)\s+(packets?|pieces?|units?|bottles?|boxes?)$/iu.exec(text);
@@ -494,6 +564,7 @@ export function shouldContinuePending(rawPending: unknown, rawText: string): boo
   if (isClarificationCancel(rawText)) return true;
   if (parsed.data.kind === "product-create-price") return parsePendingProductPrice(rawText, parsed.data) !== null;
   if (parsed.data.kind === "product-create-confirm") return isYes(rawText);
+  if (parsed.data.kind === "repayment-amount") return parseMoney(rawText) !== null;
   if (parsed.data.kind === "khata-currency-confirm" && /^(?:haan|ha|yes|confirm)?\s*,?\s*(?:inr|rs|rupees?|rupaye)$/iu.test(text)) return true;
   if (parsed.data.kind === "open-account-amount" && !/\b(?:aaj|today|sales?|stock|inventory|udhaar|khata|order|supplier|customer|add|create|show|batao)\b/u.test(text)) return true;
   if (/(?:\baaj\b|\btoday\b|\bsales?\b|\bstock\b|\binventory\b|\budhaar\b|\bkhata\b|\border\b|\bsupplier\b|\bcustomer\b|\badd\b|\bcreate\b|\bshow\b|\bbatao\b)/u.test(text)) {
@@ -505,11 +576,16 @@ export function shouldContinuePending(rawPending: unknown, rawText: string): boo
   if (["product-existing-confirm", "khata-create-confirm", "order-transition-confirm"].includes(parsed.data.kind)) return isYes(rawText);
   if (parsed.data.kind === "product-action-choice") return /^(?:new|naya|nayi|new product|create|naya product|existing|old|already exists|stock|existing stock)$/iu.test(text);
   if (parsed.data.kind === "product-create-unit") return /^(?:packets?|pieces?|units?|bottles?|boxes?|kg|litres?|liters?)$/iu.test(text);
-  if (parsed.data.kind === "order-transition-select") {
+  if (parsed.data.kind === "customer-select") {
+    const query = text.replace(/^(?:customer|code|#)\s*/iu, "").trim();
+    return parsed.data.candidates.some((candidate) => candidate.customerCode.toLocaleLowerCase("en-IN") === query
+      || candidate.id.toLocaleLowerCase("en-US") === query);
+  }
+  if (parsed.data.kind === "order-transition-select" || parsed.data.kind === "order-status-select") {
     const query = text.replace(/^(?:order|po|#)\s*/iu, "").trim();
     if (!query) return false;
-    return parsed.data.candidates.some((candidate) => candidate.id.toLocaleLowerCase().startsWith(query)
-      || candidate.label.toLocaleLowerCase("en-IN") === query);
+    return parsed.data.candidates.some((candidate) => candidate.id.toLocaleLowerCase() === query
+      || candidate.orderNumber.toLocaleLowerCase("en-IN") === query);
   }
   if (["customer-name", "supplier-name", "order-supplier"].includes(parsed.data.kind)) return looksLikeNameAnswer(text);
   return false;
